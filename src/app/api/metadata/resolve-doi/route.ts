@@ -1,4 +1,8 @@
 import { cleanDoi } from "@/lib/doiUtils";
+import {
+  serializeMetadataCandidate,
+  serializeMetadataCandidates,
+} from "@/lib/metadataResolvers/apiSerialization";
 import { resolveByDoi } from "@/lib/metadataResolvers/resolveByDoi";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +31,7 @@ export async function GET(request: Request) {
         {
           success: false,
           bestCandidate: null,
-          candidates: result.candidates,
+          candidates: serializeMetadataCandidates(result.candidates),
           warnings: result.warnings,
           error: "开放元数据源未找到该 DOI 的可用记录。",
         },
@@ -37,8 +41,8 @@ export async function GET(request: Request) {
 
     return Response.json({
       success: true,
-      bestCandidate: result.bestCandidate,
-      candidates: result.candidates,
+      bestCandidate: serializeMetadataCandidate(result.bestCandidate),
+      candidates: serializeMetadataCandidates(result.candidates),
       warnings: result.warnings,
     });
   } catch {
@@ -47,7 +51,7 @@ export async function GET(request: Request) {
         success: false,
         candidates: [],
         warnings: [],
-        error: "DOI 查询失败，请稍后重试。",
+        error: "英文开放元数据查询失败。请稍后重试，或手动编辑字段。",
       },
       { status: 502 },
     );

@@ -1,4 +1,5 @@
 import { cleanDoi } from "@/lib/doiUtils";
+import { serializeMetadataCandidate } from "@/lib/metadataResolvers/apiSerialization";
 import { resolveCrossrefByDoi } from "@/lib/metadataResolvers/crossref";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
 
     return Response.json({
       success: true,
-      candidate,
+      candidate: serializeMetadataCandidate(candidate),
     });
   } catch {
     return Response.json(

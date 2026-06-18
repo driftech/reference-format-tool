@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   extractDoiCandidates,
   pickBestDoi,
@@ -200,7 +202,7 @@ async function safeResolveByDoi(
   try {
     return await resolveByDoi(doi);
   } catch {
-    warnings.push("开放元数据查询失败，请检查网络连接。你仍可手动编辑字段后生成参考文献。");
+    warnings.push("英文开放元数据查询失败。请稍后重试，或手动编辑字段。");
     return { bestCandidate: null, candidates: [], warnings: [] };
   }
 }
@@ -212,7 +214,7 @@ async function safeResolveWithoutDoi(
   try {
     return await resolveWithoutDoi(input);
   } catch {
-    warnings.push("开放元数据查询失败，请检查网络连接。你仍可手动编辑字段后生成参考文献。");
+    warnings.push("英文开放元数据查询失败。请稍后重试，或手动编辑字段。");
     const localDraft = createLocalDraft(
       input,
       normalizeText(input.firstPagesText),

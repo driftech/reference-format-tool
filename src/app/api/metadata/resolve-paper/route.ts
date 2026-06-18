@@ -2,6 +2,10 @@ import {
   resolvePaperMetadata,
   type ResolvePaperMetadataResult,
 } from "@/lib/metadataResolvers/resolvePaperMetadata";
+import {
+  serializeMetadataCandidates,
+  serializeReferenceItem,
+} from "@/lib/metadataResolvers/apiSerialization";
 
 export const dynamic = "force-dynamic";
 
@@ -45,16 +49,19 @@ export async function POST(request: Request) {
 
     return Response.json({
       success: result.status !== "failed",
-      ...result,
+      finalItem: serializeReferenceItem(result.finalItem),
+      candidates: serializeMetadataCandidates(result.candidates),
+      localDraft: serializeReferenceItem(result.localDraft),
+      status: result.status,
+      warnings: result.warnings,
     });
   } catch {
     return Response.json(
       {
         success: false,
-        error: "论文元数据识别失败，已建议保留本地草稿并人工核对。",
+        error: "英文开放元数据查询失败。请稍后重试，或手动编辑字段。",
       },
       { status: 502 },
     );
   }
 }
-

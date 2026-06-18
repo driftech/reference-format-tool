@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { MetadataCandidate } from "../referenceTypes";
 import {
   mapCrossrefWorkToCandidate,

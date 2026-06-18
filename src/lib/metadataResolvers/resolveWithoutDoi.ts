@@ -1,3 +1,5 @@
+import "server-only";
+
 import { extractPaperMetadata } from "../extractPaperMetadata";
 import { enhanceChineseReferenceDraft } from "../chineseReferenceHeuristics";
 import { extractDoiCandidates, pickBestDoi } from "../doiUtils";

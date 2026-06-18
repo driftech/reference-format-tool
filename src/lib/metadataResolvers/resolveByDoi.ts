@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cleanDoi } from "../doiUtils";
 import type { MetadataCandidate } from "../referenceTypes";
 import { resolveCrossrefByDoi } from "./crossref";
