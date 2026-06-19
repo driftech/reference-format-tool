@@ -1,7 +1,7 @@
 "use client";
 
-import type { ChangeEvent, ClipboardEvent } from "react";
-import { useMemo, useRef, useState } from "react";
+import type { ChangeEvent, ClipboardEvent, DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   detectDuplicateReferences,
   type DuplicateReferenceResult,
@@ -178,9 +178,15 @@ export function ReferenceFormatTool() {
   const [sourceStatusMessage, setSourceStatusMessage] = useState("");
   const [sourceCopyMessage, setSourceCopyMessage] = useState("");
   const [uploadedSourceFiles, setUploadedSourceFiles] = useState<UploadedSourceFile[]>([]);
+  const [isSourceDragActive, setIsSourceDragActive] = useState(false);
   const [expandedPreviewIds, setExpandedPreviewIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [collapsedMetadataIds, setCollapsedMetadataIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [metadataCollapseInitializedIds, setMetadataCollapseInitializedIds] =
+    useState<Set<string>>(() => new Set());
   const [citationSupplementTexts, setCitationSupplementTexts] = useState<
     Record<string, string>
   >({});
@@ -298,21 +304,154 @@ export function ReferenceFormatTool() {
     (file) => file.textExtractionStatus === "extracting",
   );
 
-  const handleSourceFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
+  useEffect(() => {
+    const activeIds = new Set(uploadedSourceFiles.map((file) => file.id));
+    const filesToInitialize = uploadedSourceFiles.filter(
+      (file) =>
+        file.referenceItem && !metadataCollapseInitializedIds.has(file.id),
+    );
+
+    if (filesToInitialize.length === 0) {
+      setCollapsedMetadataIds((currentIds) => {
+        const nextIds = new Set(
+          [...currentIds].filter((fileId) => activeIds.has(fileId)),
+        );
+
+        return nextIds.size === currentIds.size ? currentIds : nextIds;
+      });
+      setMetadataCollapseInitializedIds((currentIds) => {
+        const nextIds = new Set(
+          [...currentIds].filter((fileId) => activeIds.has(fileId)),
+        );
+
+        return nextIds.size === currentIds.size ? currentIds : nextIds;
+      });
+      return;
+    }
+
+    setCollapsedMetadataIds((currentIds) => {
+      const nextIds = new Set(
+        [...currentIds].filter((fileId) => activeIds.has(fileId)),
+      );
+
+      filesToInitialize.forEach((file) => {
+        if (shouldCollapseMetadataByDefault(file)) {
+          nextIds.add(file.id);
+        } else {
+          nextIds.delete(file.id);
+        }
+      });
+
+      return nextIds;
+    });
+    setMetadataCollapseInitializedIds((currentIds) => {
+      const nextIds = new Set(
+        [...currentIds].filter((fileId) => activeIds.has(fileId)),
+      );
+
+      filesToInitialize.forEach((file) => nextIds.add(file.id));
+
+      return nextIds;
+    });
+  }, [metadataCollapseInitializedIds, uploadedSourceFiles]);
+
+  const addSourceFiles = useCallback((fileSource: File[] | FileList | null | undefined) => {
+    const files = Array.from(fileSource ?? []);
 
     if (files.length === 0) {
       return;
     }
 
-    setUploadedSourceFiles((currentFiles) => [
-      ...currentFiles,
-      ...files.map((file) => createUploadedSourceFile(file)),
-    ]);
-    setStatusMessage(`已加入 ${files.length} 个文件。可在上传队列中执行文本提取。`);
+    setUploadedSourceFiles((currentFiles) => {
+      const existingKeys = new Set(
+        currentFiles.map(
+          (sourceFile) =>
+            `${sourceFile.fileName}-${sourceFile.size}-${sourceFile.file.lastModified}`,
+        ),
+      );
+      const newFiles = files.filter((file) => {
+        const key = `${file.name}-${file.size}-${file.lastModified}`;
+
+        if (existingKeys.has(key)) {
+          return false;
+        }
+
+        existingKeys.add(key);
+        return true;
+      });
+
+      if (newFiles.length === 0) {
+        return currentFiles;
+      }
+
+      return [
+        ...currentFiles,
+        ...newFiles.map((file) => createUploadedSourceFile(file)),
+      ];
+    });
+    setStatusMessage(
+      `已读取 ${files.length} 个文件。可在上传队列中执行文本提取。`,
+    );
     setSourceStatusMessage("");
     setCopyMessage("");
-    event.target.value = "";
+  }, []);
+
+  const handleSourceFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    addSourceFiles(event.currentTarget.files);
+  };
+
+  useEffect(() => {
+    const input = sourceFileInputRef.current;
+
+    if (!input) {
+      return;
+    }
+
+    const handleNativeFileSelection = () => {
+      addSourceFiles(input.files);
+    };
+
+    input.addEventListener("change", handleNativeFileSelection);
+    input.addEventListener("input", handleNativeFileSelection);
+
+    return () => {
+      input.removeEventListener("change", handleNativeFileSelection);
+      input.removeEventListener("input", handleNativeFileSelection);
+    };
+  }, [addSourceFiles]);
+
+  const handleSourceDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setIsSourceDragActive(true);
+  };
+
+  const handleSourceDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsSourceDragActive(false);
+  };
+
+  const handleSourceDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsSourceDragActive(false);
+    addSourceFiles(event.dataTransfer.files);
+  };
+
+  const handleToggleMetadataDetails = (fileId: string) => {
+    setCollapsedMetadataIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+
+      if (nextIds.has(fileId)) {
+        nextIds.delete(fileId);
+      } else {
+        nextIds.add(fileId);
+      }
+
+      return nextIds;
+    });
   };
 
   const handleRemoveSourceFile = (fileId: string) => {
@@ -320,6 +459,16 @@ export function ReferenceFormatTool() {
       currentFiles.filter((file) => file.id !== fileId),
     );
     setExpandedPreviewIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      nextIds.delete(fileId);
+      return nextIds;
+    });
+    setCollapsedMetadataIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      nextIds.delete(fileId);
+      return nextIds;
+    });
+    setMetadataCollapseInitializedIds((currentIds) => {
       const nextIds = new Set(currentIds);
       nextIds.delete(fileId);
       return nextIds;
@@ -343,6 +492,8 @@ export function ReferenceFormatTool() {
   const handleClearSourceFiles = () => {
     setUploadedSourceFiles([]);
     setExpandedPreviewIds(new Set());
+    setCollapsedMetadataIds(new Set());
+    setMetadataCollapseInitializedIds(new Set());
     setSourceResultText("");
     setSourceStatusMessage("");
     setSourceCopyMessage("");
@@ -867,14 +1018,19 @@ export function ReferenceFormatTool() {
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
-              <label className="relative inline-flex min-h-11 cursor-pointer items-center justify-center overflow-hidden rounded-md bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-within:ring-2 focus-within:ring-slate-950 focus-within:ring-offset-2">
+              <label
+                htmlFor="source-file-input"
+                className="relative inline-flex min-h-11 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus-within:ring-2 focus-within:ring-slate-950 focus-within:ring-offset-2"
+              >
                 上传论文文件
-              <input
+                <input
+                  id="source-file-input"
                   ref={sourceFileInputRef}
                   type="file"
                   accept={sourceFileAccept}
                   multiple
                   aria-label="上传论文文件"
+                  data-testid="source-file-input"
                   className="absolute inset-0 cursor-pointer opacity-0"
                   onChange={handleSourceFileUpload}
                 />
@@ -912,6 +1068,25 @@ export function ReferenceFormatTool() {
           <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
             本工具生成结果仅用于辅助整理，自动识别可能不完整。投稿前请以目标期刊、学校或导师要求为准。
           </p>
+
+          <div
+            onDragOver={handleSourceDragOver}
+            onDragLeave={handleSourceDragLeave}
+            onDrop={handleSourceDrop}
+            className={[
+              "mt-4 rounded-lg border-2 border-dashed px-4 py-6 text-center transition",
+              isSourceDragActive
+                ? "border-slate-950 bg-slate-100"
+                : "border-slate-300 bg-slate-50",
+            ].join(" ")}
+          >
+            <p className="text-sm font-semibold text-slate-900">
+              也可以把论文文件直接拖到这里上传
+            </p>
+            <p className="mt-2 text-xs leading-6 text-slate-500">
+              支持一次拖入多个文件。拖入后会显示在下方队列中。
+            </p>
+          </div>
 
           {uploadedSourceFiles.length > 0 ? (
             <div className="mt-5 grid gap-3">
@@ -993,6 +1168,7 @@ export function ReferenceFormatTool() {
                   />
                   <MetadataSummary
                     sourceFile={sourceFile}
+                    collapsed={collapsedMetadataIds.has(sourceFile.id)}
                     duplicateResults={
                       sourceFile.referenceItem
                         ? duplicatesByReferenceId.get(sourceFile.referenceItem.id) ?? []
@@ -1007,6 +1183,7 @@ export function ReferenceFormatTool() {
                     citationSupplementMessage={citationSupplementMessages[sourceFile.id] ?? ""}
                     onApplyChineseCitation={handleApplyChineseCitation}
                     onChineseCitationTextChange={handleChineseCitationTextChange}
+                    onToggleDetails={() => handleToggleMetadataDetails(sourceFile.id)}
                     onUpdateField={handleUpdateReferenceField}
                     onUseCandidate={handleUseMetadataCandidate}
                   />
@@ -1636,22 +1813,26 @@ function FileExtractionSummary({
 
 function MetadataSummary({
   sourceFile,
+  collapsed,
   duplicateResults,
   validationResult,
   citationSupplementText,
   citationSupplementMessage,
   onApplyChineseCitation,
   onChineseCitationTextChange,
+  onToggleDetails,
   onUpdateField,
   onUseCandidate,
 }: {
   sourceFile: UploadedSourceFile;
+  collapsed: boolean;
   duplicateResults: DuplicateReferenceResult[];
   validationResult?: ReferenceValidationResult;
   citationSupplementText: string;
   citationSupplementMessage: string;
   onApplyChineseCitation: (fileId: string) => void;
   onChineseCitationTextChange: (fileId: string, value: string) => void;
+  onToggleDetails: () => void;
   onUpdateField: (
     fileId: string,
     field: EditableReferenceField,
@@ -1681,22 +1862,35 @@ function MetadataSummary({
           year: reference.year,
         })
       : [];
+  const confidenceLabel = formatConfidencePercent(reference.confidence);
+  const isReviewNeeded =
+    reference.needsReview ||
+    sourceFile.metadataStatus === "failed" ||
+    qualityStatus === "review" ||
+    qualityStatus === "missing" ||
+    qualityStatus === "duplicate";
 
   return (
     <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex flex-col gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <h4 className="text-sm font-semibold text-slate-900">
             识别结果：{reference.sourceFileName ?? sourceFile.fileName}
           </h4>
           <p className="mt-1 text-xs text-slate-500">
             文件类型：{reference.sourceFileType ?? sourceFile.fileType}
-            {typeof reference.confidence === "number"
-              ? ` · 置信度：${Math.round(reference.confidence * 100)}%`
-              : ""}
+            {confidenceLabel ? ` · 置信度：${confidenceLabel}` : ""}
+          </p>
+          <p className="mt-2 break-words text-sm font-semibold leading-6 text-slate-900">
+            {formatPreviewValue(reference.title)}
+          </p>
+          <p className="mt-1 break-words text-xs leading-5 text-slate-500">
+            作者：{formatAuthorPreview(reference.authors)} · 年份：
+            {formatPreviewValue(reference.year)}
+            {reference.doi ? ` · DOI：${reference.doi}` : ""}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
           <span
             className={[
               "rounded-md px-2 py-1 text-xs font-medium",
@@ -1713,9 +1907,23 @@ function MetadataSummary({
           >
             {qualityStatusLabels[qualityStatus]}
           </span>
+          {isReviewNeeded ? (
+            <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+              需要核对
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={onToggleDetails}
+            className="inline-flex min-h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
+          >
+            {collapsed ? "展开解析结果" : "收起解析结果"}
+          </button>
         </div>
       </div>
 
+      {collapsed ? null : (
+        <>
       <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
         <MetaBadge label="元数据来源" value={reference.metadataSource ?? "unknown"} />
         <MetaBadge label="匹配方式" value={reference.matchedBy ?? "none"} />
@@ -1866,6 +2074,8 @@ function MetadataSummary({
           )}
         />
       ) : null}
+        </>
+      )}
     </div>
   );
 }
@@ -2355,6 +2565,54 @@ function hasCompleteReferenceFields(reference: ReferenceItem): boolean {
       reference.authors.length > 0 &&
       reference.year &&
       (reference.type !== "journal" || reference.sourceTitle),
+  );
+}
+
+function getConfidencePercent(confidence: number | null | undefined): number | undefined {
+  if (typeof confidence !== "number" || !Number.isFinite(confidence)) {
+    return undefined;
+  }
+
+  return confidence <= 1 ? confidence * 100 : confidence;
+}
+
+function formatConfidencePercent(
+  confidence: number | null | undefined,
+): string | undefined {
+  const confidencePercent = getConfidencePercent(confidence);
+
+  if (typeof confidencePercent !== "number") {
+    return undefined;
+  }
+
+  return `${Math.round(confidencePercent)}%`;
+}
+
+function formatAuthorPreview(authors: string[]): string {
+  if (authors.length === 0) {
+    return "未识别";
+  }
+
+  const previewAuthors = authors.slice(0, 3).join("、");
+  return authors.length > 3 ? `${previewAuthors} 等` : previewAuthors;
+}
+
+function shouldCollapseMetadataByDefault(sourceFile: UploadedSourceFile): boolean {
+  const reference = sourceFile.referenceItem;
+
+  if (!reference || sourceFile.metadataStatus === "failed") {
+    return false;
+  }
+
+  const confidencePercent = getConfidencePercent(reference.confidence);
+
+  return Boolean(
+    confidencePercent &&
+      confidencePercent >= 90 &&
+      !reference.needsReview &&
+      reference.title &&
+      reference.authors.length > 0 &&
+      reference.year,
   );
 }
 
