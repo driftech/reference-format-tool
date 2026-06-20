@@ -10,10 +10,9 @@ import { extractTextFromFile } from "@/lib/extractTextFromFile";
 import { sourceFileAccept } from "@/lib/fileTypes";
 import {
   formatAuthors,
-  formatAPA7,
-  formatGB7714,
   formatPreviewValue,
   formatReferences,
+  type TargetReferenceFormat,
 } from "@/lib/formatReferences";
 import {
   parseReferences,
@@ -75,40 +74,29 @@ type EditableReferenceField =
 
 type QualityStatus = "passed" | "review" | "missing" | "duplicate";
 
-const formatOptions: FormatOption[] = [
+const domesticFormatOptions: FormatOption[] = [
   {
     id: "gbt-7714",
-    title: "国内期刊",
+    title: "GB/T 7714-2015",
     description: "GB/T 7714-2015 顺序编码制",
+  },
+];
+
+const englishFormatOptions: FormatOption[] = [
+  {
+    id: "english-numbered",
+    title: "数字编号制",
+    description: "建筑、能源、环境、工程类英文期刊常用",
   },
   {
     id: "apa-7",
-    title: "国外期刊",
-    description: "APA 7th",
+    title: "APA 7th",
+    description: "心理学、教育学、社会科学常用，作者—年份制",
   },
   {
     id: "ieee",
     title: "IEEE",
-    description: "后续支持",
-    disabled: true,
-  },
-  {
-    id: "chicago",
-    title: "Chicago",
-    description: "后续支持",
-    disabled: true,
-  },
-  {
-    id: "mla",
-    title: "MLA",
-    description: "后续支持",
-    disabled: true,
-  },
-  {
-    id: "vancouver",
-    title: "Vancouver",
-    description: "后续支持",
-    disabled: true,
+    description: "计算机、电子、通信、工程技术类常用",
   },
 ];
 
@@ -170,7 +158,8 @@ export function ReferenceFormatTool() {
   const [resultText, setResultText] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
-  const [sourceSelectedFormat, setSourceSelectedFormat] = useState("gbt-7714");
+  const [sourceSelectedFormat, setSourceSelectedFormat] =
+    useState("english-numbered");
   const [sourceStartIndexInput, setSourceStartIndexInput] = useState("1");
   const [referenceSortMode, setReferenceSortMode] =
     useState<ReferenceSortMode>("upload");
@@ -830,8 +819,12 @@ export function ReferenceFormatTool() {
     setStatusMessage(
       selectedFormat === "gbt-7714"
         ? `已生成 ${parsedReferences.length} 条 GB/T 7714-2015 格式结果。`
+        : selectedFormat === "english-numbered"
+          ? `已生成 ${parsedReferences.length} 条英文数字编号制格式结果。`
         : selectedFormat === "apa-7"
           ? `已生成 ${parsedReferences.length} 条 APA 7th 格式结果。`
+          : selectedFormat === "ieee"
+            ? `已生成 ${parsedReferences.length} 条 IEEE 格式结果。`
           : `已解析并生成 ${parsedReferences.length} 条占位格式结果。`,
     );
   };
@@ -847,10 +840,9 @@ export function ReferenceFormatTool() {
     const itemsForOutput = orderedSourceReferenceItems.map(addTitleMissingWarning);
     const startIndex = parseStartIndexInput(sourceStartIndexInput);
     setSourceStartIndexInput(String(startIndex));
-    const formatted =
-      sourceSelectedFormat === "gbt-7714"
-        ? formatGB7714(itemsForOutput, { startIndex })
-        : formatAPA7(itemsForOutput);
+    const formatted = formatReferences(itemsForOutput, sourceSelectedFormat, {
+      startIndex,
+    });
     const hasIncompleteReferences = orderedSourceReferenceItems.some(
       (reference) =>
         !reference.title || reference.authors.length === 0 || !reference.year,
@@ -898,9 +890,7 @@ export function ReferenceFormatTool() {
       const startIndex = parseStartIndexInput(sourceStartIndexInput);
       setSourceStartIndexInput(String(startIndex));
       setSourceResultText(
-        sourceSelectedFormat === "gbt-7714"
-          ? formatGB7714(sortedItems, { startIndex })
-          : formatAPA7(sortedItems),
+        formatReferences(sortedItems, sourceSelectedFormat, { startIndex }),
       );
       setSourceStatusMessage("已按新的排序方式重新生成参考文献列表。");
     }
@@ -917,9 +907,8 @@ export function ReferenceFormatTool() {
     setSourceStartIndexInput(String(startIndex));
     const content =
       format === "txt"
-        ? sourceSelectedFormat === "gbt-7714"
-          ? formatGB7714(items, { startIndex })
-          : sourceResultText || formatAPA7(items)
+        ? sourceResultText ||
+          formatReferences(items, sourceSelectedFormat, { startIndex })
         : format === "bib"
           ? buildBibTeX(items)
           : buildRis(items);
@@ -1295,42 +1284,29 @@ export function ReferenceFormatTool() {
           <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(320px,1.15fr)]">
             <div className="min-w-0">
               <h3 className="text-sm font-semibold text-slate-900">输出格式</h3>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                {formatOptions.slice(0, 2).map((option) => {
-                  const isSelected = sourceSelectedFormat === option.id;
-
-                  return (
-                    <label
-                      key={`source-${option.id}`}
-                      className={[
-                        "rounded-lg border p-4 transition",
-                        "cursor-pointer bg-white hover:border-slate-400",
-                        isSelected
-                          ? "border-slate-950 ring-2 ring-slate-950/10"
-                          : "border-slate-200",
-                      ].join(" ")}
-                    >
-                      <input
-                        type="radio"
-                        name="source-format"
-                        value={option.id}
-                        checked={isSelected}
-                        onChange={() => {
-                          setSourceSelectedFormat(option.id);
-                          setSourceResultText("");
-                          setSourceCopyMessage("");
-                        }}
-                        className="sr-only"
-                      />
-                      <span className="block text-sm font-semibold text-slate-900">
-                        {option.title}
-                      </span>
-                      <span className="mt-1 block text-sm leading-6 text-slate-500">
-                        {option.description}
-                      </span>
-                    </label>
-                  );
-                })}
+              <div className="mt-3 grid gap-4">
+                <FormatOptionGroup
+                  groupTitle="中文期刊格式"
+                  name="source-format"
+                  options={domesticFormatOptions}
+                  selectedFormat={sourceSelectedFormat}
+                  onSelect={(formatId) => {
+                    setSourceSelectedFormat(formatId);
+                    setSourceResultText("");
+                    setSourceCopyMessage("");
+                  }}
+                />
+                <FormatOptionGroup
+                  groupTitle="国外期刊格式"
+                  name="source-format"
+                  options={englishFormatOptions}
+                  selectedFormat={sourceSelectedFormat}
+                  onSelect={(formatId) => {
+                    setSourceSelectedFormat(formatId);
+                    setSourceResultText("");
+                    setSourceCopyMessage("");
+                  }}
+                />
               </div>
 
               <label className="mt-5 block text-sm">
@@ -1353,7 +1329,7 @@ export function ReferenceFormatTool() {
               </label>
 
               <StartIndexSetting
-                disabled={sourceSelectedFormat !== "gbt-7714"}
+                disabled={!usesSequentialNumbering(sourceSelectedFormat)}
                 value={sourceStartIndexInput}
                 onChange={setSourceStartIndexInput}
               />
@@ -1471,7 +1447,7 @@ export function ReferenceFormatTool() {
                       已有参考文献文本转换
                     </label>
                     <p className="mt-1 break-words text-sm leading-6 text-slate-500">
-                      保留原有入口：每行一条已整理好的参考文献文本，用于测试 GB/T 7714 或 APA 7th 输出。
+                      保留原有入口：每行一条已整理好的参考文献文本，用于测试 GB/T 7714、英文数字编号制或 APA 7th 输出。
                     </p>
                   </div>
                 </div>
@@ -1500,7 +1476,7 @@ export function ReferenceFormatTool() {
                       目标期刊类型
                     </h2>
                     <p className="mt-1 text-sm leading-6 text-slate-500">
-                      当前仅开放两种基础选项。
+                      中文期刊和国外期刊格式分开选择；国外期刊不是默认 APA。
                     </p>
                   </div>
                   <span className="whitespace-nowrap rounded-md bg-slate-100 px-3 py-1 text-sm font-medium text-slate-600">
@@ -1508,55 +1484,26 @@ export function ReferenceFormatTool() {
                   </span>
                 </div>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {formatOptions.map((option) => {
-                    const isSelected = selectedFormat === option.id;
-
-                    return (
-                      <label
-                        key={option.id}
-                        className={[
-                          "rounded-lg border p-4 transition",
-                          option.disabled
-                            ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
-                            : "cursor-pointer bg-white hover:border-slate-400",
-                          isSelected
-                            ? "border-slate-950 ring-2 ring-slate-950/10"
-                            : "border-slate-200",
-                        ].join(" ")}
-                      >
-                        <input
-                          type="radio"
-                          name="format"
-                          value={option.id}
-                          checked={isSelected}
-                          disabled={option.disabled}
-                          onChange={() => setSelectedFormat(option.id)}
-                          className="sr-only"
-                        />
-                        <span className="flex items-start justify-between gap-3">
-                          <span>
-                            <span className="block text-sm font-semibold text-slate-900">
-                              {option.title}
-                            </span>
-                            <span className="mt-1 block text-sm leading-6 text-slate-500">
-                              {option.description}
-                            </span>
-                          </span>
-                          {option.disabled ? (
-                            <span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-medium text-slate-500">
-                              后续支持
-                            </span>
-                          ) : null}
-                        </span>
-                      </label>
-                    );
-                  })}
+                <div className="mt-4 grid gap-4">
+                  <FormatOptionGroup
+                    groupTitle="中文期刊格式"
+                    name="format"
+                    options={domesticFormatOptions}
+                    selectedFormat={selectedFormat}
+                    onSelect={setSelectedFormat}
+                  />
+                  <FormatOptionGroup
+                    groupTitle="国外期刊格式"
+                    name="format"
+                    options={englishFormatOptions}
+                    selectedFormat={selectedFormat}
+                    onSelect={setSelectedFormat}
+                  />
                 </div>
               </div>
 
               <StartIndexSetting
-                disabled={selectedFormat !== "gbt-7714"}
+                disabled={!usesSequentialNumbering(selectedFormat)}
                 value={manualStartIndexInput}
                 onChange={setManualStartIndexInput}
               />
@@ -2329,6 +2276,73 @@ function EditableField({
   );
 }
 
+function FormatOptionGroup({
+  groupTitle,
+  name,
+  onSelect,
+  options,
+  selectedFormat,
+}: {
+  groupTitle: string;
+  name: string;
+  onSelect: (formatId: string) => void;
+  options: FormatOption[];
+  selectedFormat: string;
+}) {
+  return (
+    <fieldset className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <legend className="px-1 text-sm font-semibold text-slate-900">
+        {groupTitle}
+      </legend>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+        {options.map((option) => {
+          const isSelected = selectedFormat === option.id;
+
+          return (
+            <label
+              key={`${name}-${option.id}`}
+              className={[
+                "rounded-lg border p-4 transition",
+                option.disabled
+                  ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                  : "cursor-pointer bg-white hover:border-slate-400",
+                isSelected
+                  ? "border-slate-950 ring-2 ring-slate-950/10"
+                  : "border-slate-200",
+              ].join(" ")}
+            >
+              <input
+                type="radio"
+                name={name}
+                value={option.id}
+                checked={isSelected}
+                disabled={option.disabled}
+                onChange={() => onSelect(option.id)}
+                className="sr-only"
+              />
+              <span className="flex items-start justify-between gap-3">
+                <span>
+                  <span className="block text-sm font-semibold text-slate-900">
+                    {option.title}
+                  </span>
+                  <span className="mt-1 block text-sm leading-6 text-slate-500">
+                    {option.description}
+                  </span>
+                </span>
+                {option.disabled ? (
+                  <span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-medium text-slate-500">
+                    后续支持
+                  </span>
+                ) : null}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 function StartIndexSetting({
   disabled,
   onChange,
@@ -2565,6 +2579,14 @@ function hasCompleteReferenceFields(reference: ReferenceItem): boolean {
       reference.authors.length > 0 &&
       reference.year &&
       (reference.type !== "journal" || reference.sourceTitle),
+  );
+}
+
+function usesSequentialNumbering(formatId: TargetReferenceFormat): boolean {
+  return (
+    formatId === "gbt-7714" ||
+    formatId === "english-numbered" ||
+    formatId === "ieee"
   );
 }
 

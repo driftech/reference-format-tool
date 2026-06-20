@@ -1,6 +1,11 @@
 import type { ReferenceItem } from "./referenceTypes";
 
-export type TargetReferenceFormat = "gbt-7714" | "apa-7" | string;
+export type TargetReferenceFormat =
+  | "gbt-7714"
+  | "english-numbered"
+  | "apa-7"
+  | "ieee"
+  | string;
 
 export type FormatReferenceOptions = {
   startIndex?: number;
@@ -15,8 +20,16 @@ export function formatReferences(
     return formatGB7714(references, options);
   }
 
+  if (targetFormat === "english-numbered") {
+    return formatEnglishNumbered(references, options);
+  }
+
   if (targetFormat === "apa-7") {
     return formatAPA7(references);
+  }
+
+  if (targetFormat === "ieee") {
+    return formatIEEE(references, options);
   }
 
   return references
@@ -75,6 +88,63 @@ export function formatAPA7(referenceItems: ReferenceItem[]): string {
                 : reference.rawText;
 
       return formatted || reference.rawText;
+    })
+    .join("\n");
+}
+
+export function formatEnglishNumbered(
+  referenceItems: ReferenceItem[],
+  options: FormatReferenceOptions = {},
+): string {
+  const startIndex = normalizeStartIndex(options.startIndex);
+
+  return referenceItems
+    .map((reference, index) => {
+      const sequence = `[${startIndex + index}]`;
+
+      if (reference.type === "unknown" && reference.rawText.trim()) {
+        return `${sequence} ${ensureFinalPeriod(reference.rawText)}`;
+      }
+
+      const authors = formatEnglishNumberedAuthors(reference.authors);
+      const title = cleanReferenceMarker(getReferenceTitle(reference));
+      const source = formatEnglishNumberedSource(reference);
+      const link = formatEnglishNumberedLink(reference);
+      const body = joinSentenceParts([authors, title, source, link]);
+
+      return `${sequence} ${ensureFinalPeriod(body || reference.rawText)}`;
+    })
+    .join("\n");
+}
+
+export function formatIEEE(
+  referenceItems: ReferenceItem[],
+  options: FormatReferenceOptions = {},
+): string {
+  const startIndex = normalizeStartIndex(options.startIndex);
+
+  return referenceItems
+    .map((reference, index) => {
+      const sequence = `[${startIndex + index}]`;
+
+      if (reference.type === "unknown" && reference.rawText.trim()) {
+        return `${sequence} ${ensureFinalPeriod(reference.rawText)}`;
+      }
+
+      const formatted =
+        reference.type === "journal"
+          ? formatIeeeJournal(reference)
+          : reference.type === "book"
+            ? formatIeeeBook(reference)
+            : reference.type === "conference"
+              ? formatIeeeConference(reference)
+              : reference.type === "thesis"
+                ? formatIeeeThesis(reference)
+                : reference.type === "web"
+                  ? formatIeeeWeb(reference)
+                  : reference.rawText;
+
+      return `${sequence} ${ensureFinalPeriod(formatted || reference.rawText)}`;
     })
     .join("\n");
 }
@@ -173,6 +243,80 @@ function formatApaWeb(reference: ReferenceItem): string {
     : "";
 
   return appendApaLink(joinSentenceParts([lead, title, siteName]), reference);
+}
+
+function formatIeeeJournal(reference: ReferenceItem): string {
+  const authors = formatIeeeAuthors(reference.authors);
+  const title = formatIeeeQuotedTitle(reference);
+  const sourceTitle = reference.sourceTitle
+    ? cleanReferenceMarker(reference.sourceTitle)
+    : "";
+  const details = formatIeeeJournalDetails(reference);
+
+  return appendIeeeLink(
+    joinNonEmpty(
+      [
+        authors,
+        title,
+        joinNonEmpty([sourceTitle, details], ", "),
+        reference.year,
+      ],
+      ", ",
+    ),
+    reference,
+  );
+}
+
+function formatIeeeBook(reference: ReferenceItem): string {
+  const authors = formatIeeeAuthors(reference.authors);
+  const title = cleanReferenceMarker(getReferenceTitle(reference));
+  const publication = formatPublication(
+    reference.place,
+    reference.publisher,
+    reference.year,
+  );
+
+  return appendIeeeLink(joinNonEmpty([authors, title, publication], ", "), reference);
+}
+
+function formatIeeeConference(reference: ReferenceItem): string {
+  const authors = formatIeeeAuthors(reference.authors);
+  const title = formatIeeeQuotedTitle(reference);
+  const conference = reference.sourceTitle
+    ? cleanReferenceMarker(reference.sourceTitle)
+    : "";
+  const location = reference.place ?? "";
+  const pages = reference.pages ? `pp. ${reference.pages}` : "";
+
+  return appendIeeeLink(
+    joinNonEmpty([authors, title, conference, location, reference.year, pages], ", "),
+    reference,
+  );
+}
+
+function formatIeeeThesis(reference: ReferenceItem): string {
+  const authors = formatIeeeAuthors(reference.authors);
+  const title = formatIeeeQuotedTitle(reference);
+  const institution = reference.publisher ?? reference.institution ?? reference.sourceTitle;
+  const location = reference.place ?? "";
+
+  return appendIeeeLink(
+    joinNonEmpty([authors, title, "thesis", institution, location, reference.year], ", "),
+    reference,
+  );
+}
+
+function formatIeeeWeb(reference: ReferenceItem): string {
+  const authors = formatIeeeAuthors(reference.authors);
+  const title = formatIeeeQuotedTitle(reference);
+  const siteName = reference.sourceTitle
+    ? cleanReferenceMarker(reference.sourceTitle)
+    : "";
+
+  return appendIeeeLink(
+    joinNonEmpty([authors, title, siteName, reference.year], ", "),
+    reference,
+  );
 }
 
 function formatApaLead(reference: ReferenceItem): string {
@@ -429,6 +573,210 @@ function formatApaLink(reference: ReferenceItem): string {
   }
 
   return reference.url ?? "";
+}
+
+function appendIeeeLink(text: string, reference: ReferenceItem): string {
+  const body = ensureFinalPeriod(text);
+  const link = formatEnglishNumberedLink(reference);
+
+  if (!link) {
+    return body;
+  }
+
+  return body ? `${body} ${link}` : link;
+}
+
+function formatIeeeQuotedTitle(reference: ReferenceItem): string {
+  const title = cleanReferenceMarker(getReferenceTitle(reference));
+  return title ? `"${title}"` : "";
+}
+
+function formatIeeeJournalDetails(reference: ReferenceItem): string {
+  return joinNonEmpty(
+    [
+      reference.volume ? `vol. ${reference.volume}` : "",
+      reference.issue ? `no. ${reference.issue}` : "",
+      reference.pages
+        ? `pp. ${reference.pages}`
+        : reference.articleNumber
+          ? `Art. no. ${reference.articleNumber}`
+          : "",
+    ],
+    ", ",
+  );
+}
+
+function formatEnglishNumberedSource(reference: ReferenceItem): string {
+  const sourceTitle = reference.sourceTitle
+    ? cleanReferenceMarker(reference.sourceTitle)
+    : "";
+  const year = reference.year ?? "";
+  const volumeIssue = formatVolumeIssue(reference.volume, reference.issue);
+  const pagesOrArticle = reference.pages ?? reference.articleNumber ?? "";
+  const yearVolume = [year, volumeIssue].filter(Boolean).join(";");
+
+  if (sourceTitle && yearVolume && pagesOrArticle) {
+    return `${sourceTitle}. ${yearVolume}:${pagesOrArticle}`;
+  }
+
+  if (sourceTitle && yearVolume) {
+    return `${sourceTitle}. ${yearVolume}`;
+  }
+
+  if (sourceTitle && pagesOrArticle) {
+    return `${sourceTitle}. ${pagesOrArticle}`;
+  }
+
+  return sourceTitle || yearVolume || pagesOrArticle;
+}
+
+function formatEnglishNumberedLink(reference: ReferenceItem): string {
+  if (reference.doi) {
+    return normalizeDoiUrl(reference.doi);
+  }
+
+  return reference.url ?? "";
+}
+
+function normalizeDoiUrl(doi: string): string {
+  const trimmed = doi.trim().replace(/[.。,\s]+$/g, "");
+
+  if (/^https?:\/\/(?:dx\.)?doi\.org\//i.test(trimmed)) {
+    return trimmed.replace(/^http:\/\//i, "https://");
+  }
+
+  const normalizedDoi = trimmed.replace(/^doi:\s*/i, "");
+  return `https://doi.org/${normalizedDoi}`;
+}
+
+function formatEnglishNumberedAuthors(authors: string[]): string {
+  return authors
+    .map((author) => formatEnglishNumberedAuthor(author))
+    .filter(Boolean)
+    .join(", ");
+}
+
+function formatEnglishNumberedAuthor(author: string): string {
+  const cleaned = author
+    .replace(/\bet al\.?/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/[，,;；.。]+$/g, "")
+    .trim();
+
+  if (!cleaned) {
+    return "";
+  }
+
+  if (/[\u3400-\u9fff]/.test(cleaned) || looksLikeOrganizationAuthor(cleaned)) {
+    return cleaned;
+  }
+
+  if (cleaned.includes(",")) {
+    const [familyName, ...givenParts] = cleaned.split(",");
+    const initials = formatCompactInitials(givenParts.join(" "));
+    return [familyName.trim(), initials].filter(Boolean).join(" ");
+  }
+
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  if (tokens.length <= 1) {
+    return cleaned;
+  }
+
+  if (tokens.slice(1).every(isInitialToken)) {
+    return `${tokens[0]} ${formatCompactInitials(tokens.slice(1).join(" "))}`;
+  }
+
+  const familyName = tokens.at(-1) ?? "";
+  const initials = formatCompactInitials(tokens.slice(0, -1).join(" "));
+  return [familyName, initials].filter(Boolean).join(" ");
+}
+
+function formatCompactInitials(value: string): string {
+  return value
+    .replace(/[，,]/g, " ")
+    .split(/\s+/)
+    .map((part) => part.replace(/[^A-Za-z-]/g, ""))
+    .filter(Boolean)
+    .map((part) =>
+      part
+        .split("-")
+        .filter(Boolean)
+        .map((segment) => segment[0].toUpperCase())
+        .join("-"),
+    )
+    .join("");
+}
+
+function formatIeeeAuthors(authors: string[]): string {
+  const formattedAuthors = authors
+    .map((author) => formatIeeeAuthor(author))
+    .filter(Boolean);
+
+  if (formattedAuthors.length === 0) {
+    return "";
+  }
+
+  if (formattedAuthors.length === 1) {
+    return formattedAuthors[0];
+  }
+
+  if (formattedAuthors.length === 2) {
+    return `${formattedAuthors[0]} and ${formattedAuthors[1]}`;
+  }
+
+  return `${formattedAuthors.slice(0, -1).join(", ")}, and ${formattedAuthors.at(-1)}`;
+}
+
+function formatIeeeAuthor(author: string): string {
+  const cleaned = author
+    .replace(/\bet al\.?/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/[，,;；.。]+$/g, "")
+    .trim();
+
+  if (!cleaned) {
+    return "";
+  }
+
+  if (/[\u3400-\u9fff]/.test(cleaned) || looksLikeOrganizationAuthor(cleaned)) {
+    return cleaned;
+  }
+
+  if (cleaned.includes(",")) {
+    const [familyName, ...givenParts] = cleaned.split(",");
+    const initials = formatIeeeInitials(givenParts.join(" "));
+    return [initials, familyName.trim()].filter(Boolean).join(" ");
+  }
+
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  if (tokens.length <= 1) {
+    return cleaned;
+  }
+
+  if (tokens.slice(1).every(isInitialToken)) {
+    const initials = formatIeeeInitials(tokens.slice(1).join(" "));
+    return [initials, tokens[0]].filter(Boolean).join(" ");
+  }
+
+  const familyName = tokens.at(-1) ?? "";
+  const initials = formatIeeeInitials(tokens.slice(0, -1).join(" "));
+  return [initials, familyName].filter(Boolean).join(" ");
+}
+
+function formatIeeeInitials(value: string): string {
+  return value
+    .replace(/[，,]/g, " ")
+    .split(/\s+/)
+    .map((part) => part.replace(/[^A-Za-z-]/g, ""))
+    .filter(Boolean)
+    .map((part) =>
+      part
+        .split("-")
+        .filter(Boolean)
+        .map((segment) => `${segment[0].toUpperCase()}.`)
+        .join("-"),
+    )
+    .join(" ");
 }
 
 function getReferenceTitle(reference: ReferenceItem): string {

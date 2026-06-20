@@ -6,7 +6,7 @@ export type ReferenceValidationStatus = "passed" | "review" | "missing";
 export type ReferenceValidationIssue = {
   field?: keyof ReferenceItem;
   message: string;
-  scope: "通用检查" | "GB/T 7714" | "APA 7th";
+  scope: "通用检查" | "GB/T 7714" | "英文数字编号制" | "APA 7th" | "IEEE";
 };
 
 export type ReferenceValidationResult = {
@@ -27,7 +27,11 @@ export function validateReferences(
       ...validateCommonFields(reference),
       ...(targetStyle === "apa-7"
         ? validateApa7Fields(reference)
-        : validateGb7714Fields(reference)),
+        : targetStyle === "ieee"
+          ? validateIeeeFields(reference)
+        : targetStyle === "english-numbered"
+          ? validateEnglishNumberedFields(reference)
+          : validateGb7714Fields(reference)),
     ];
     const uniqueIssues = dedupeIssues(issues);
 
@@ -165,6 +169,40 @@ function validateGb7714Fields(
     issues.push({
       message: "GB/T 7714 网页资料缺少题名或 URL，投稿前请核对。",
       scope: "GB/T 7714",
+    });
+  }
+
+  return issues;
+}
+
+function validateEnglishNumberedFields(
+  reference: ReferenceItem,
+): ReferenceValidationIssue[] {
+  const issues: ReferenceValidationIssue[] = [];
+
+  if (
+    reference.type === "journal" &&
+    hasMissing(reference, ["authors", "title", "sourceTitle", "year"])
+  ) {
+    issues.push({
+      message: "英文数字编号制期刊论文缺少作者、题名、期刊名或年份，投稿前请核对。",
+      scope: "英文数字编号制",
+    });
+  }
+
+  return issues;
+}
+
+function validateIeeeFields(reference: ReferenceItem): ReferenceValidationIssue[] {
+  const issues: ReferenceValidationIssue[] = [];
+
+  if (
+    reference.type === "journal" &&
+    hasMissing(reference, ["authors", "title", "sourceTitle", "year"])
+  ) {
+    issues.push({
+      message: "IEEE 期刊论文缺少作者、题名、期刊名或年份，投稿前请核对。",
+      scope: "IEEE",
     });
   }
 
