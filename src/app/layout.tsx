@@ -13,9 +13,22 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "论文文件参考文献生成器",
+  title: "参考文献生成器 - 论文文件自动识别与格式转换",
   description:
-    "上传论文或文献文件，按文件生成参考文献条目，并保留 GB/T 7714 与 APA 7th 输出能力。",
+    "在线参考文献生成器，支持上传论文文件自动识别题名、作者、期刊、年份和 DOI，生成 GB/T 7714、英文数字编号制、APA 7th 等参考文献格式，适合论文写作、投稿和文献整理。",
+  keywords: [
+    "参考文献生成器",
+    "论文参考文献格式",
+    "GB/T 7714",
+    "英文参考文献",
+    "APA 7th",
+    "论文格式工具",
+    "文献格式转换",
+    "DOI识别",
+  ],
+  alternates: {
+    canonical: "https://ckwxsc.xyz/",
+  },
 };
 
 export default function RootLayout({
