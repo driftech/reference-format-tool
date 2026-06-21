@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 参考文献生成器
 
-## Getting Started
+在线使用地址：https://ckwxsc.xyz
 
-First, run the development server:
+这是一个用于论文写作和投稿前文献整理的参考文献生成工具。用户可以上传论文文件，系统会尝试识别题名、作者、期刊、年份、DOI 等信息，并生成 GB/T 7714、英文数字编号制、APA 7th 等参考文献格式。
+
+## 主要功能
+
+* 上传论文文件并生成参考文献条目
+* 自动识别 DOI、题名、作者、期刊、年份等元数据
+* 支持 GB/T 7714、英文数字编号制、APA 7th 等格式
+* 支持中文文献草稿解析与人工补全
+* 支持参考文献列表导出与整理
+
+## 使用说明
+
+打开在线网站：
+
+https://ckwxsc.xyz
+
+上传论文或文献文件后，系统会生成对应的参考文献条目。由于不同数据库、期刊官网和 PDF 元数据质量存在差异，正式投稿前仍建议人工核对作者、题名、期刊名、年份、卷期页码和 DOI。
+
+## 适用场景
+
+* 毕业论文参考文献整理
+* 课程论文参考文献格式转换
+* 中文期刊投稿前参考文献整理
+* 英文期刊投稿前参考文献格式检查
+* 批量论文文件元数据识别与整理
+
+## 本地开发
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+然后在浏览器打开：
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 技术栈
 
-## Learn More
+* Next.js
+* React
+* TypeScript
+* Tailwind CSS
 
-To learn more about Next.js, take a look at the following resources:
+## 免责声明
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+本工具用于辅助生成参考文献格式，不保证所有文献元数据自动识别结果完全准确。正式论文投稿、毕业论文提交或期刊排版前，请以原始论文、期刊官网、DOI 数据库和目标期刊格式要求为准进行核对。
