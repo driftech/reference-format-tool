@@ -9,6 +9,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const maxResolvePaperRequestBytes = 10 * 1024 * 1024;
+
 type ResolvePaperRequestBody = {
   fileName?: string;
   firstPagesText?: string;
@@ -16,6 +18,18 @@ type ResolvePaperRequestBody = {
 };
 
 export async function POST(request: Request) {
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+
+  if (Number.isFinite(contentLength) && contentLength > maxResolvePaperRequestBytes) {
+    return Response.json(
+      {
+        success: false,
+        error: "\u8bf7\u6c42\u5185\u5bb9\u8fc7\u5927\uff0c\u8bf7\u51cf\u5c11\u4e0a\u4f20\u6587\u4ef6\u6570\u91cf\u6216\u7f29\u77ed\u5f85\u8bc6\u522b\u6587\u672c\u540e\u91cd\u8bd5\u3002",
+      },
+      { status: 413 },
+    );
+  }
+
   let body: ResolvePaperRequestBody;
 
   try {

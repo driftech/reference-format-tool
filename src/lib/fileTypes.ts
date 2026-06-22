@@ -11,6 +11,48 @@ export type SourceFileType =
   | "caj"
   | "unsupported";
 
+export const maxSourceFileSizeBytes = 10 * 1024 * 1024;
+export const maxSourceFileCount = 10;
+
+export const allowedSourceFileExtensions = [
+  "pdf",
+  "docx",
+  "doc",
+  "tex",
+  "latex",
+  "md",
+  "txt",
+  "rtf",
+  "epub",
+  "caj",
+] as const;
+
+export const forbiddenSourceFileExtensions = [
+  "exe",
+  "msi",
+  "bat",
+  "cmd",
+  "sh",
+  "php",
+  "js",
+  "html",
+  "zip",
+  "rar",
+  "7z",
+  "tar",
+  "gz",
+  "dll",
+  "bin",
+] as const;
+
+const allowedSourceFileTypeSet = new Set<SourceFileType>(
+  allowedSourceFileExtensions,
+);
+const forbiddenExtensionSet = new Set<string>(forbiddenSourceFileExtensions);
+
+export const unsupportedSourceFileTypeMessage =
+  "暂不支持该文件类型。请上传 PDF、DOCX、TXT、MD、TEX、RTF 等论文或文献文件。";
+
 export const sourceFileAccept = [
   ".pdf",
   ".docx",
@@ -61,7 +103,7 @@ const mimeTypes: Record<string, SourceFileType> = {
 };
 
 export function detectFileType(file: File): SourceFileType {
-  const extension = file.name.split(".").pop()?.toLowerCase();
+  const extension = getFileExtension(file.name);
 
   if (extension && extensionTypes[extension]) {
     return extensionTypes[extension];
@@ -69,4 +111,18 @@ export function detectFileType(file: File): SourceFileType {
 
   const mimeType = file.type.toLowerCase();
   return mimeTypes[mimeType] ?? "unsupported";
+}
+
+export function getFileExtension(fileName: string): string {
+  return fileName.split(".").pop()?.toLowerCase().trim() ?? "";
+}
+
+export function isAllowedSourceFile(file: File): boolean {
+  const extension = getFileExtension(file.name);
+
+  if (!extension || forbiddenExtensionSet.has(extension)) {
+    return false;
+  }
+
+  return allowedSourceFileTypeSet.has(detectFileType(file));
 }

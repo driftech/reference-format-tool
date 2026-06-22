@@ -7,7 +7,13 @@ import {
   type DuplicateReferenceResult,
 } from "@/lib/detectDuplicateReferences";
 import { extractTextFromFile } from "@/lib/extractTextFromFile";
-import { sourceFileAccept } from "@/lib/fileTypes";
+import {
+  isAllowedSourceFile,
+  maxSourceFileCount,
+  maxSourceFileSizeBytes,
+  sourceFileAccept,
+  unsupportedSourceFileTypeMessage,
+} from "@/lib/fileTypes";
 import {
   formatAuthors,
   formatPreviewValue,
@@ -167,6 +173,7 @@ export function ReferenceFormatTool() {
   const [sourceStatusMessage, setSourceStatusMessage] = useState("");
   const [sourceCopyMessage, setSourceCopyMessage] = useState("");
   const [uploadedSourceFiles, setUploadedSourceFiles] = useState<UploadedSourceFile[]>([]);
+  const uploadedSourceFilesRef = useRef<UploadedSourceFile[]>([]);
   const [isSourceDragActive, setIsSourceDragActive] = useState(false);
   const [expandedPreviewIds, setExpandedPreviewIds] = useState<Set<string>>(
     () => new Set(),
@@ -289,6 +296,10 @@ export function ReferenceFormatTool() {
     },
     [duplicateResults, uploadedSourceFiles, validationByReferenceId],
   );
+  useEffect(() => {
+    uploadedSourceFilesRef.current = uploadedSourceFiles;
+  }, [uploadedSourceFiles]);
+
   const isExtractingText = uploadedSourceFiles.some(
     (file) => file.textExtractionStatus === "extracting",
   );
@@ -344,14 +355,27 @@ export function ReferenceFormatTool() {
     });
   }, [metadataCollapseInitializedIds, uploadedSourceFiles]);
 
-  const addSourceFiles = useCallback((fileSource: File[] | FileList | null | undefined) => {
-    const files = Array.from(fileSource ?? []);
+  const addSourceFiles = useCallback(
+    (fileSource: File[] | FileList | null | undefined) => {
+      const files = Array.from(fileSource ?? []);
 
-    if (files.length === 0) {
-      return;
-    }
+      if (files.length === 0) {
+        return;
+      }
 
-    setUploadedSourceFiles((currentFiles) => {
+      if (files.some((file) => file.size > maxSourceFileSizeBytes)) {
+        setStatusMessage(
+          `单个文件不能超过 ${formatFileSize(maxSourceFileSizeBytes)}。`,
+        );
+        return;
+      }
+
+      if (files.some((file) => !isAllowedSourceFile(file))) {
+        setStatusMessage(unsupportedSourceFileTypeMessage);
+        return;
+      }
+
+      const currentFiles = uploadedSourceFilesRef.current;
       const existingKeys = new Set(
         currentFiles.map(
           (sourceFile) =>
@@ -369,21 +393,30 @@ export function ReferenceFormatTool() {
         return true;
       });
 
-      if (newFiles.length === 0) {
-        return currentFiles;
+      if (currentFiles.length + newFiles.length > maxSourceFileCount) {
+        setStatusMessage(`一次最多上传 ${maxSourceFileCount} 个文件。`);
+        return;
       }
 
-      return [
+      if (newFiles.length === 0) {
+        setStatusMessage("所选文件已在上传队列中。可继续提取或识别。");
+        return;
+      }
+
+      const nextFiles = [
         ...currentFiles,
         ...newFiles.map((file) => createUploadedSourceFile(file)),
       ];
-    });
-    setStatusMessage(
-      `已读取 ${files.length} 个文件。可在上传队列中执行文本提取。`,
-    );
-    setSourceStatusMessage("");
-    setCopyMessage("");
-  }, []);
+      uploadedSourceFilesRef.current = nextFiles;
+      setUploadedSourceFiles(nextFiles);
+      setStatusMessage(
+        `已读取 ${newFiles.length} 个文件。可在上传队列中执行文本提取。`,
+      );
+      setSourceStatusMessage("");
+      setCopyMessage("");
+    },
+    [],
+  );
 
   const handleSourceFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     addSourceFiles(event.currentTarget.files);
@@ -985,6 +1018,9 @@ export function ReferenceFormatTool() {
             论文文件参考文献生成器
           </h1>
           <p className="mt-3 max-w-4xl text-base leading-7 text-slate-600">
+            上传论文文件，自动识别题名、作者、期刊、年份、DOI 等信息，并生成 GB/T 7714、英文数字编号制、APA 7th 等参考文献格式。
+          </p>
+          <p className="mt-3 max-w-4xl text-base leading-7 text-slate-600">
             上传自己参考过的论文文件，系统按“一个 PDF 一条参考文献”的方式识别该文件本身的题名、作者、期刊和年份，生成论文末尾可用的参考文献列表；不会提取 PDF 文末 References / 参考文献章节，也不会生成该论文引用过的文献。
           </p>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-500">
@@ -1002,7 +1038,10 @@ export function ReferenceFormatTool() {
                 主流程：PDF 上传 → 文本提取 → DOI 提取 → Crossref / DataCite / OpenAlex 查询 → 无 DOI 或查询失败时题名检索 → 候选结果和置信度 → 用户确认或编辑 → 生成 GB/T 7714 / APA 7th。
               </p>
               <p className="mt-2 text-xs leading-6 text-slate-500">
-                第一批：.pdf、.docx、.tex、.latex、.md、.txt；第二批：.rtf、.epub；建议先转换：.doc、.caj。
+                支持格式：.pdf、.docx、.doc、.tex、.latex、.md、.txt、.rtf、.epub、.caj；单个文件不超过 10MB，一次最多 10 个文件。
+              </p>
+              <p className="mt-2 max-w-3xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-6 text-amber-800">
+                文件仅用于本次参考文献识别。请勿上传涉密文件、未发表论文或包含敏感信息的材料。生成结果仅供格式整理参考，正式投稿前请按目标期刊要求人工核对。
               </p>
             </div>
 
@@ -1649,11 +1688,24 @@ export function ReferenceFormatTool() {
             </div>
           )}
         </section>
+
+        <footer className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm text-slate-500 shadow-sm">
+          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2" aria-label="站点说明链接">
+            <a className="transition hover:text-slate-950" href="/guide">
+              使用说明
+            </a>
+            <a className="transition hover:text-slate-950" href="/privacy">
+              隐私政策
+            </a>
+            <a className="transition hover:text-slate-950" href="/about">
+              关于本站
+            </a>
+          </nav>
+        </footer>
       </div>
     </main>
   );
 }
-
 function copyTextWithFallback(text: string): boolean {
   const textarea = document.createElement("textarea");
   textarea.value = text;
