@@ -1,11 +1,20 @@
 type PdfTextItem = {
   str?: string;
+  transform?: number[];
+};
+
+type PdfMetadataInfo = {
+  Creator?: unknown;
+  Producer?: unknown;
+  Subject?: unknown;
+  Title?: unknown;
 };
 
 export async function extractPdfText(file: File): Promise<{
   fullText: string;
   frontText: string;
   metadataTitle?: string;
+  pdfMetadataText?: string;
   pageCount: number;
   warning?: string;
 }> {
@@ -21,21 +30,13 @@ export async function extractPdfText(file: File): Promise<{
     useSystemFonts: true,
   });
   const pdf = await loadingTask.promise;
-  const metadataTitle = await getPdfMetadataTitle(pdf);
+  const metadata = await getPdfMetadata(pdf);
   const pageTexts: string[] = [];
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent();
-    const pageText = content.items
-      .map((item) => {
-        if (typeof item === "object" && item && "str" in item) {
-          return (item as PdfTextItem).str ?? "";
-        }
-
-        return "";
-      })
-      .join(" ");
+    const pageText = buildPageText(content.items as PdfTextItem[]);
 
     pageTexts.push(normalizeText(pageText));
   }
@@ -43,25 +44,81 @@ export async function extractPdfText(file: File): Promise<{
   return {
     fullText: normalizeText(pageTexts.join("\n\n")),
     frontText: normalizeText(pageTexts.slice(0, 2).join("\n\n")),
-    metadataTitle,
+    metadataTitle: metadata.title,
+    pdfMetadataText: metadata.metadataText,
     pageCount: pdf.numPages,
-    warning: "复杂排版 PDF 可能导致文字顺序异常，后续识别结果需要人工核对。",
+    warning: "???? PDF ????????????????????????",
   };
 }
 
-async function getPdfMetadataTitle(pdf: {
-  getMetadata?: () => Promise<{ info?: { Title?: unknown } }>;
-}): Promise<string | undefined> {
+function buildPageText(items: PdfTextItem[]): string {
+  const positionedItems = items
+    .map((item, index) => ({
+      index,
+      text: (item.str ?? "").replace(/\s+/g, " ").trim(),
+      x: Array.isArray(item.transform) ? Number(item.transform[4] ?? 0) : index,
+      y: Array.isArray(item.transform) ? Number(item.transform[5] ?? 0) : -index,
+    }))
+    .filter((item) => item.text.length > 0);
+
+  if (positionedItems.length === 0) {
+    return "";
+  }
+
+  const lines: Array<{ y: number; items: typeof positionedItems }> = [];
+  const yTolerance = 3;
+
+  for (const item of positionedItems.sort((first, second) => second.y - first.y || first.x - second.x)) {
+    const line = lines.find((candidate) => Math.abs(candidate.y - item.y) <= yTolerance);
+
+    if (line) {
+      line.items.push(item);
+      line.y = (line.y + item.y) / 2;
+    } else {
+      lines.push({ y: item.y, items: [item] });
+    }
+  }
+
+  return lines
+    .sort((first, second) => second.y - first.y)
+    .map((line) =>
+      line.items
+        .sort((first, second) => first.x - second.x || first.index - second.index)
+        .map((item) => item.text)
+        .join(" ")
+        .replace(/\s+([,.;:!?])/g, "$1")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function getPdfMetadata(pdf: {
+  getMetadata?: () => Promise<{ info?: PdfMetadataInfo }>;
+}): Promise<{ title?: string; metadataText?: string }> {
   try {
     const metadata = await pdf.getMetadata?.();
-    const title = metadata?.info?.Title;
+    const info = metadata?.info ?? {};
+    const title = cleanMetadataString(info.Title);
+    const metadataText = [info.Creator, info.Producer, info.Subject, info.Title]
+      .map(cleanMetadataString)
+      .filter(Boolean)
+      .join("\n");
 
-    return typeof title === "string" && title.trim()
-      ? normalizeText(title)
-      : undefined;
+    return {
+      title: title || undefined,
+      metadataText: metadataText || undefined,
+    };
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+function cleanMetadataString(value: unknown): string {
+  return typeof value === "string" && value.trim()
+    ? normalizeText(value)
+    : "";
 }
 
 function normalizeText(text: string): string {

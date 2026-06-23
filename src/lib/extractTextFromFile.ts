@@ -9,6 +9,7 @@ export type ExtractTextFromFileResult = {
   fullText: string;
   frontText: string;
   metadataTitle?: string;
+  pdfMetadataText?: string;
   pageCount?: number;
   success: boolean;
   warning?: string;
@@ -35,6 +36,7 @@ export async function extractTextFromFile(
       const result = await extractPdfText(file);
       return buildResult(file, fileType, result.fullText, result.frontText, {
         metadataTitle: result.metadataTitle,
+        pdfMetadataText: result.pdfMetadataText,
         pageCount: result.pageCount,
         warning: result.warning,
       });
@@ -80,6 +82,7 @@ function buildResult(
   options: {
     error?: string;
     metadataTitle?: string;
+    pdfMetadataText?: string;
     pageCount?: number;
     warning?: string;
   } = {},
@@ -93,6 +96,7 @@ function buildResult(
       fullText: "",
       frontText: "",
       metadataTitle: options.metadataTitle,
+      pdfMetadataText: options.pdfMetadataText,
       pageCount: options.pageCount,
       success: false,
       error:
@@ -107,6 +111,7 @@ function buildResult(
       fullText: "",
       frontText: "",
       metadataTitle: options.metadataTitle,
+      pdfMetadataText: options.pdfMetadataText,
       pageCount: options.pageCount,
       success: false,
       error: options.error ?? "未提取到可用文本，请检查文件内容。",
@@ -119,6 +124,7 @@ function buildResult(
     fullText,
     frontText,
     metadataTitle: options.metadataTitle,
+    pdfMetadataText: options.pdfMetadataText,
     pageCount: options.pageCount,
     success: true,
     warning:

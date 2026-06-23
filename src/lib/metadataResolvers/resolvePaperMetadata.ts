@@ -9,6 +9,7 @@ import { extractPaperMetadata } from "../extractPaperMetadata";
 import type { MetadataCandidate, ReferenceItem } from "../referenceTypes";
 import { extractZhPaperMetadata } from "../zhPaperMetadata";
 import { isLikelyChinesePaper } from "../zhTextUtils";
+import { getManualRecoveryWarning, getPrintedPdfWarning, detectPrintedPdfRisk } from "../titleUtils";
 import { resolveByDoi } from "./resolveByDoi";
 import { resolveWithoutDoi } from "./resolveWithoutDoi";
 
@@ -16,6 +17,7 @@ export type ResolvePaperMetadataInput = {
   fileName: string;
   firstPagesText: string;
   fullText?: string;
+  pdfMetadataText?: string;
 };
 
 export type ResolvePaperMetadataStatus = "success" | "needs_review" | "failed";
@@ -52,6 +54,12 @@ export async function resolvePaperMetadata(
   }
 
   const doi = pickBestDoi(extractDoiCandidates(searchableText), firstPagesText);
+  const printedPdfRisk = detectPrintedPdfRisk({
+    firstPagesText,
+    fullText,
+    pdfMetadataText: input.pdfMetadataText,
+    hasDoi: Boolean(doi),
+  });
 
   if (isLikelyChinesePaper(searchableText)) {
     return resolveChinesePaperMetadata(input, firstPagesText, fullText, doi);
@@ -61,7 +69,7 @@ export async function resolvePaperMetadata(
     createLocalDraft(input, firstPagesText, fullText),
     doi,
   );
-  const warnings: string[] = [];
+  const warnings: string[] = printedPdfRisk ? [getPrintedPdfWarning()] : [];
   let candidates: MetadataCandidate[] = [];
 
   if (doi) {
@@ -139,7 +147,13 @@ async function resolveChinesePaperMetadata(
     fullText,
     doi,
   });
-  const warnings: string[] = [];
+  const printedPdfRisk = detectPrintedPdfRisk({
+    firstPagesText,
+    fullText,
+    pdfMetadataText: input.pdfMetadataText,
+    hasDoi: Boolean(doi),
+  });
+  const warnings: string[] = printedPdfRisk ? [getPrintedPdfWarning()] : [];
   let candidates: MetadataCandidate[] = [];
 
   if (doi) {
@@ -323,6 +337,7 @@ function finalizeLocalDraft(input: {
     ...input.localDraft.warnings,
     ...input.warnings,
     ...buildCompletenessWarnings(input.localDraft),
+    ...(!input.localDraft.title || input.localDraft.authors.length === 0 || !input.localDraft.year ? [getManualRecoveryWarning()] : []),
   ]));
 
   return {

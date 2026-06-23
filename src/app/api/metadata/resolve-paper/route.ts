@@ -15,6 +15,7 @@ type ResolvePaperRequestBody = {
   fileName?: string;
   firstPagesText?: string;
   fullText?: string;
+  pdfMetadataText?: string;
 };
 
 export async function POST(request: Request) {
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
       fileName: body.fileName,
       firstPagesText: body.firstPagesText ?? "",
       fullText: body.fullText ?? "",
+      pdfMetadataText: body.pdfMetadataText ?? "",
     });
 
     return Response.json({

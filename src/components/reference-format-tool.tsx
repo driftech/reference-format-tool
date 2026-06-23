@@ -189,6 +189,12 @@ export function ReferenceFormatTool() {
   const [citationSupplementMessages, setCitationSupplementMessages] = useState<
     Record<string, string>
   >({});
+  const [manualLookupInputs, setManualLookupInputs] = useState<
+    Record<string, { doi: string; title: string }>
+  >({});
+  const [manualLookupMessages, setManualLookupMessages] = useState<
+    Record<string, string>
+  >({});
   const [chineseBibliographyText, setChineseBibliographyText] = useState("");
   const [chineseBibliographyMessage, setChineseBibliographyMessage] = useState("");
   const sourceFileInputRef = useRef<HTMLInputElement>(null);
@@ -564,6 +570,8 @@ export function ReferenceFormatTool() {
     setSourceCopyMessage("");
     setCitationSupplementTexts({});
     setCitationSupplementMessages({});
+    setManualLookupInputs({});
+    setManualLookupMessages({});
 
     if (sourceFileInputRef.current) {
       sourceFileInputRef.current.value = "";
@@ -654,6 +662,92 @@ export function ReferenceFormatTool() {
     setSourceResultText("");
     setSourceCopyMessage("");
     setSourceStatusMessage("已采用候选结果，请继续核对并生成参考文献列表。");
+  };
+
+
+
+  const handleManualLookupInputChange = (
+    fileId: string,
+    field: "doi" | "title",
+    value: string,
+  ) => {
+    setManualLookupInputs((current) => ({
+      ...current,
+      [fileId]: {
+        doi: current[fileId]?.doi ?? "",
+        title: current[fileId]?.title ?? "",
+        [field]: value,
+      },
+    }));
+    setManualLookupMessages((current) => removeRecordKey(current, fileId));
+  };
+
+  const handleManualMetadataLookup = async (fileId: string) => {
+    const input = manualLookupInputs[fileId] ?? { doi: "", title: "" };
+    const doi = input.doi.trim();
+    const title = input.title.trim();
+
+    if (!doi && !title) {
+      setManualLookupMessages((current) => ({
+        ...current,
+        [fileId]: "\u8bf7\u5148\u8f93\u5165 DOI \u6216\u8bba\u6587\u9898\u540d\u3002",
+      }));
+      return;
+    }
+
+    setManualLookupMessages((current) => ({
+      ...current,
+      [fileId]: "\u6b63\u5728\u67e5\u8be2\u5f00\u653e\u5143\u6570\u636e\u5019\u9009...",
+    }));
+
+    const lookupResult = doi
+      ? await lookupMetadataByDoi(doi)
+      : await lookupMetadataByTitle(title);
+
+    if (lookupResult.candidates.length === 0) {
+      setManualLookupMessages((current) => ({
+        ...current,
+        [fileId]: lookupResult.message ?? "\u672a\u627e\u5230\u53ef\u7528\u5019\u9009\uff0c\u8bf7\u624b\u52a8\u7f16\u8f91\u5b57\u6bb5\u3002",
+      }));
+      return;
+    }
+
+    setUploadedSourceFiles((currentFiles) =>
+      currentFiles.map((file) => {
+        if (file.id !== fileId || !file.referenceItem) {
+          return file;
+        }
+
+        const warnings = Array.from(
+          new Set([
+            ...file.referenceItem.warnings,
+            "\u5df2\u6839\u636e\u624b\u52a8\u8f93\u5165\u7684 DOI / \u9898\u540d\u67e5\u8be2\u5019\u9009\u7ed3\u679c\uff0c\u8bf7\u91c7\u7528\u524d\u4eba\u5de5\u6838\u5bf9\u3002",
+          ]),
+        );
+        const referenceItem = {
+          ...file.referenceItem,
+          candidates: mergeMetadataCandidateLists(
+            file.referenceItem.candidates ?? [],
+            lookupResult.candidates,
+          ),
+          needsReview: true,
+          warnings,
+          extractionWarning: warnings.join(" "),
+        };
+
+        return {
+          ...file,
+          metadataStatus: getManualMetadataStatus(referenceItem),
+          referenceItem,
+        };
+      }),
+    );
+    setSourceResultText("");
+    setSourceCopyMessage("");
+    setManualLookupMessages((current) => ({
+      ...current,
+      [fileId]: "\u5df2\u627e\u5230 " + lookupResult.candidates.length + " \u4e2a\u5019\u9009\uff0c\u8bf7\u5728\u5019\u9009\u7ed3\u679c\u4e2d\u9009\u62e9\u3002",
+    }));
   };
 
   const handleChineseCitationTextChange = (fileId: string, value: string) => {
@@ -1259,8 +1353,12 @@ export function ReferenceFormatTool() {
                     }
                     citationSupplementText={citationSupplementTexts[sourceFile.id] ?? ""}
                     citationSupplementMessage={citationSupplementMessages[sourceFile.id] ?? ""}
+                    manualLookupInput={manualLookupInputs[sourceFile.id] ?? { doi: "", title: "" }}
+                    manualLookupMessage={manualLookupMessages[sourceFile.id] ?? ""}
                     onApplyChineseCitation={handleApplyChineseCitation}
                     onChineseCitationTextChange={handleChineseCitationTextChange}
+                    onManualLookupInputChange={handleManualLookupInputChange}
+                    onManualMetadataLookup={handleManualMetadataLookup}
                     onToggleDetails={() => handleToggleMetadataDetails(sourceFile.id)}
                     onUpdateField={handleUpdateReferenceField}
                     onUseCandidate={handleUseMetadataCandidate}
@@ -1867,8 +1965,12 @@ function MetadataSummary({
   validationResult,
   citationSupplementText,
   citationSupplementMessage,
+  manualLookupInput,
+  manualLookupMessage,
   onApplyChineseCitation,
   onChineseCitationTextChange,
+  onManualLookupInputChange,
+  onManualMetadataLookup,
   onToggleDetails,
   onUpdateField,
   onUseCandidate,
@@ -1879,8 +1981,12 @@ function MetadataSummary({
   validationResult?: ReferenceValidationResult;
   citationSupplementText: string;
   citationSupplementMessage: string;
+  manualLookupInput: { doi: string; title: string };
+  manualLookupMessage: string;
   onApplyChineseCitation: (fileId: string) => void;
   onChineseCitationTextChange: (fileId: string, value: string) => void;
+  onManualLookupInputChange: (fileId: string, field: "doi" | "title", value: string) => void;
+  onManualMetadataLookup: (fileId: string) => void;
   onToggleDetails: () => void;
   onUpdateField: (
     fileId: string,
@@ -2078,6 +2184,15 @@ function MetadataSummary({
         />
       </div>
 
+      <ManualMetadataLookupPanel
+        input={manualLookupInput}
+        message={manualLookupMessage}
+        onChange={(field, value) =>
+          onManualLookupInputChange(sourceFile.id, field, value)
+        }
+        onLookup={() => onManualMetadataLookup(sourceFile.id)}
+      />
+
       {reference.candidates && reference.candidates.length > 0 ? (
         <MetadataCandidateList
           candidates={reference.candidates}
@@ -2125,6 +2240,42 @@ function MetadataSummary({
       ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+
+function ManualMetadataLookupPanel({
+  input,
+  message,
+  onChange,
+  onLookup,
+}: {
+  input: { doi: string; title: string };
+  message: string;
+  onChange: (field: "doi" | "title", value: string) => void;
+  onLookup: () => void;
+}) {
+  return (
+    <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-6 text-blue-950">
+      <h5 className="font-semibold">{"\u624b\u52a8\u8865\u5168 DOI / \u9898\u540d"}</h5>
+      <p className="mt-1 text-xs text-blue-800">
+        {"\u672a\u80fd\u7a33\u5b9a\u8bc6\u522b\u65f6\uff0c\u53ef\u8f93\u5165 DOI \u6216\u8bba\u6587\u9898\u540d\u67e5\u8be2\u5f00\u653e\u5143\u6570\u636e\u5019\u9009\uff0c\u91c7\u7528\u524d\u8bf7\u4eba\u5de5\u6838\u5bf9\u3002"}
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <label className="min-w-0">
+          <span className="text-xs font-medium text-blue-900">DOI</span>
+          <input value={input.doi} onChange={(event) => onChange("doi", event.target.value)} placeholder="10.xxxx/xxxxx" className="mt-1 min-h-10 w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-900/10" />
+        </label>
+        <label className="min-w-0">
+          <span className="text-xs font-medium text-blue-900">{"\u8bba\u6587\u9898\u540d"}</span>
+          <input value={input.title} onChange={(event) => onChange("title", event.target.value)} placeholder="\u7c98\u8d34\u8bba\u6587\u9898\u540d" className="mt-1 min-h-10 w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-900/10" />
+        </label>
+        <button type="button" onClick={onLookup} className="inline-flex min-h-10 items-center justify-center rounded-md border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-900 transition hover:border-blue-400 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-900 focus:ring-offset-2">
+          {"\u7528 DOI / \u9898\u540d\u67e5\u8be2\u5143\u6570\u636e"}
+        </button>
+      </div>
+      {message ? <p className="mt-2 text-xs text-blue-800">{message}</p> : null}
     </div>
   );
 }
@@ -2710,6 +2861,46 @@ function formatConfidencePercent(
   }
 
   return `${Math.round(confidencePercent)}%`;
+}
+
+
+type MetadataLookupResult = { candidates: MetadataCandidate[]; message?: string };
+
+async function lookupMetadataByDoi(doi: string): Promise<MetadataLookupResult> {
+  try {
+    const response = await fetch("/api/metadata/resolve-doi?doi=" + encodeURIComponent(doi));
+    const payload = (await response.json()) as { bestCandidate?: MetadataCandidate; candidates?: MetadataCandidate[]; error?: string; warnings?: string[] };
+    const candidates = mergeMetadataCandidateLists(payload.bestCandidate ? [payload.bestCandidate] : [], payload.candidates ?? []);
+    return { candidates, message: payload.error ?? payload.warnings?.[0] };
+  } catch {
+    return { candidates: [], message: "\u5f00\u653e\u5143\u6570\u636e\u67e5\u8be2\u5931\u8d25\u3002\u8bf7\u7a0d\u540e\u91cd\u8bd5\uff0c\u6216\u624b\u52a8\u7f16\u8f91\u5b57\u6bb5\u3002" };
+  }
+}
+
+async function lookupMetadataByTitle(title: string): Promise<MetadataLookupResult> {
+  try {
+    const response = await fetch("/api/metadata/search-title?title=" + encodeURIComponent(title));
+    const payload = (await response.json()) as { candidates?: MetadataCandidate[]; error?: string; warnings?: string[] };
+    return { candidates: payload.candidates ?? [], message: payload.error ?? payload.warnings?.[0] };
+  } catch {
+    return { candidates: [], message: "\u5f00\u653e\u5143\u6570\u636e\u67e5\u8be2\u5931\u8d25\u3002\u8bf7\u7a0d\u540e\u91cd\u8bd5\uff0c\u6216\u624b\u52a8\u7f16\u8f91\u5b57\u6bb5\u3002" };
+  }
+}
+
+function mergeMetadataCandidateLists(currentCandidates: MetadataCandidate[], nextCandidates: MetadataCandidate[]): MetadataCandidate[] {
+  const seen = new Set<string>();
+  const result: MetadataCandidate[] = [];
+  for (const candidate of [...nextCandidates, ...currentCandidates]) {
+    const key = [candidate.source, candidate.item.doi?.toLowerCase() ?? "", normalizeCandidateKey(candidate.item.title ?? ""), candidate.item.year ?? ""].join(":");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(candidate);
+  }
+  return result.sort((first, second) => second.confidence - first.confidence);
+}
+
+function normalizeCandidateKey(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}\u3400-\u9fff]+/gu, "").trim();
 }
 
 function formatAuthorPreview(authors: string[]): string {

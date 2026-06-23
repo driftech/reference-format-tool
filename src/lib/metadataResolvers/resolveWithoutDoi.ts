@@ -9,16 +9,20 @@ import type {
   ReferenceItem,
 } from "../referenceTypes";
 import {
+  detectPrintedPdfRisk,
   extractBibliographicClues,
+  getManualRecoveryWarning,
+  getPrintedPdfWarning,
   type BibliographicClues,
 } from "../titleUtils";
-import { scoreMetadataCandidate } from "./scoring";
+import { scoreMetadataCandidate, titleSimilarity } from "./scoring";
 import { searchMetadataByTitle } from "./searchByTitle";
 
 export type ResolveWithoutDoiInput = {
   fileName: string;
   firstPagesText: string;
   fullText?: string;
+  pdfMetadataText?: string;
 };
 
 export type ResolveWithoutDoiResult = {
@@ -89,9 +93,18 @@ export async function resolveWithoutDoi(
     fileName: input.fileName,
     firstPagesText: input.firstPagesText,
     fullText: input.fullText,
+    pdfMetadataText: input.pdfMetadataText,
   });
   const localDraft = createLocalDraft(input, clues);
-  const warnings = [...clues.warnings];
+  const printedPdfRisk = clues.isLikelyPrintedPdf ||
+    detectPrintedPdfRisk({
+      firstPagesText: input.firstPagesText,
+      fullText: input.fullText,
+      pdfMetadataText: input.pdfMetadataText,
+    });
+  const warnings = printedPdfRisk
+    ? [...clues.warnings, getPrintedPdfWarning()]
+    : [...clues.warnings];
 
   if (clues.titleCandidates.length === 0) {
     warnings.push("没有可用于开放元数据检索的题名候选，已生成低置信度本地草稿。");
@@ -104,7 +117,7 @@ export async function resolveWithoutDoi(
   }
 
   const candidates: MetadataCandidate[] = [];
-  for (const title of clues.titleCandidates.slice(0, 2)) {
+  for (const title of clues.titleCandidates.slice(0, 3)) {
     try {
       const searchedCandidates = await searchMetadataByTitle({
         title,
@@ -122,7 +135,7 @@ export async function resolveWithoutDoi(
     clues,
   );
   const bestCandidate =
-    scoredCandidates.length > 0 && scoredCandidates[0].confidence >= 0.75
+    scoredCandidates.length > 0 && scoredCandidates[0].confidence >= 0.85
       ? scoredCandidates[0]
       : null;
 
@@ -199,10 +212,15 @@ function sortAndScoreCandidates(
 ): MetadataCandidate[] {
   return candidates
     .map((candidate) => {
-      const confidence = scoreMetadataCandidate({
+      const aggregateConfidence = scoreMetadataCandidate({
         candidate: candidate.item,
         extracted: clues,
       });
+      const maxTitleSimilarity = getMaxTitleSimilarity(candidate.item.title, clues.titleCandidates);
+      const titleConfidence = maxTitleSimilarity >= 0.85
+        ? Math.min(0.96, maxTitleSimilarity * 0.86 + completenessBonus(candidate.item))
+        : aggregateConfidence;
+      const confidence = Number(Math.max(aggregateConfidence, titleConfidence).toFixed(2));
       const matchedBy: MetadataMatchMethod =
         clues.authorCandidates.length > 0 || clues.yearCandidates.length > 0
           ? "title_author_year"
@@ -230,6 +248,35 @@ function sortAndScoreCandidates(
     })
     .filter((candidate) => candidate.confidence >= 0.45)
     .sort((first, second) => second.confidence - first.confidence);
+}
+
+function getMaxTitleSimilarity(title: string | null | undefined, titleCandidates: string[]): number {
+  if (!title) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    ...titleCandidates.map((candidate) => titleSimilarity(title, candidate)),
+  );
+}
+
+function completenessBonus(item: ReferenceItem): number {
+  let bonus = 0.03;
+
+  if (item.authors.length > 0) {
+    bonus += 0.02;
+  }
+
+  if (item.year) {
+    bonus += 0.02;
+  }
+
+  if (item.sourceTitle) {
+    bonus += 0.02;
+  }
+
+  return bonus;
 }
 
 function dedupeCandidates(candidates: MetadataCandidate[]): MetadataCandidate[] {
