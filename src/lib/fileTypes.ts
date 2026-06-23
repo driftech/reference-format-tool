@@ -11,8 +11,11 @@ export type SourceFileType =
   | "caj"
   | "unsupported";
 
-export const maxSourceFileSizeBytes = 10 * 1024 * 1024;
-export const maxSourceFileCount = 10;
+export const MAX_FILES_PER_UPLOAD = 10;
+export const MAX_TOTAL_UPLOAD_SIZE_MB = 50;
+export const maxSourceFileCount = MAX_FILES_PER_UPLOAD;
+export const maxTotalUploadSizeBytes =
+  MAX_TOTAL_UPLOAD_SIZE_MB * 1024 * 1024;
 
 export const allowedSourceFileExtensions = [
   "pdf",
@@ -51,7 +54,7 @@ const allowedSourceFileTypeSet = new Set<SourceFileType>(
 const forbiddenExtensionSet = new Set<string>(forbiddenSourceFileExtensions);
 
 export const unsupportedSourceFileTypeMessage =
-  "暂不支持该文件类型。请上传 PDF、DOCX、TXT、MD、TEX、RTF 等论文或文献文件。";
+  "暂不支持该文件类型。请上传 PDF、DOCX、DOC、TXT、MD、TEX、RTF 等论文或文献文件。";
 
 export const sourceFileAccept = [
   ".pdf",

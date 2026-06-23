@@ -10,7 +10,7 @@ import { extractTextFromFile } from "@/lib/extractTextFromFile";
 import {
   isAllowedSourceFile,
   maxSourceFileCount,
-  maxSourceFileSizeBytes,
+  maxTotalUploadSizeBytes,
   sourceFileAccept,
   unsupportedSourceFileTypeMessage,
 } from "@/lib/fileTypes";
@@ -363,10 +363,8 @@ export function ReferenceFormatTool() {
         return;
       }
 
-      if (files.some((file) => file.size > maxSourceFileSizeBytes)) {
-        setStatusMessage(
-          `单个文件不能超过 ${formatFileSize(maxSourceFileSizeBytes)}。`,
-        );
+      if (files.length > maxSourceFileCount) {
+        setStatusMessage(`一次最多上传 ${maxSourceFileCount} 个文件。`);
         return;
       }
 
@@ -395,6 +393,20 @@ export function ReferenceFormatTool() {
 
       if (currentFiles.length + newFiles.length > maxSourceFileCount) {
         setStatusMessage(`一次最多上传 ${maxSourceFileCount} 个文件。`);
+        return;
+      }
+
+      const currentTotalSize = currentFiles.reduce(
+        (totalSize, sourceFile) => totalSize + sourceFile.size,
+        0,
+      );
+      const newTotalSize = newFiles.reduce(
+        (totalSize, file) => totalSize + file.size,
+        0,
+      );
+
+      if (currentTotalSize + newTotalSize > maxTotalUploadSizeBytes) {
+        setStatusMessage("单次上传文件总大小不能超过 50MB。");
         return;
       }
 
@@ -1038,7 +1050,7 @@ export function ReferenceFormatTool() {
                 主流程：PDF 上传 → 文本提取 → DOI 提取 → Crossref / DataCite / OpenAlex 查询 → 无 DOI 或查询失败时题名检索 → 候选结果和置信度 → 用户确认或编辑 → 生成 GB/T 7714 / APA 7th。
               </p>
               <p className="mt-2 text-xs leading-6 text-slate-500">
-                支持格式：.pdf、.docx、.doc、.tex、.latex、.md、.txt、.rtf、.epub、.caj；单个文件不超过 10MB，一次最多 10 个文件。
+                单次最多上传 10 个文件，总大小不超过 50MB。支持 PDF、DOCX、DOC、TXT、MD、TEX、RTF 等论文或文献文件。
               </p>
               <p className="mt-2 max-w-3xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-6 text-amber-800">
                 文件仅用于本次参考文献识别。请勿上传涉密文件、未发表论文或包含敏感信息的材料。生成结果仅供格式整理参考，正式投稿前请按目标期刊要求人工核对。

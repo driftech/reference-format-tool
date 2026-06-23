@@ -1,3 +1,4 @@
+import { maxTotalUploadSizeBytes } from "@/lib/fileTypes";
 import {
   resolvePaperMetadata,
   type ResolvePaperMetadataResult,
@@ -9,7 +10,6 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const maxResolvePaperRequestBytes = 10 * 1024 * 1024;
 
 type ResolvePaperRequestBody = {
   fileName?: string;
@@ -20,7 +20,7 @@ type ResolvePaperRequestBody = {
 export async function POST(request: Request) {
   const contentLength = Number(request.headers.get("content-length") ?? "0");
 
-  if (Number.isFinite(contentLength) && contentLength > maxResolvePaperRequestBytes) {
+  if (Number.isFinite(contentLength) && contentLength > maxTotalUploadSizeBytes) {
     return Response.json(
       {
         success: false,

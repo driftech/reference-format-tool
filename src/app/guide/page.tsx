@@ -34,7 +34,7 @@ export default function GuidePage() {
 
         <h2 className="mt-7 text-lg font-semibold text-slate-900">3. 如何上传论文文件</h2>
         <p className="mt-3 text-sm leading-7 text-slate-600">
-          在首页的上传区域选择或拖入论文文件。单个文件限制为 10MB，一次最多上传 10 个文件。文件加入队列后，点击“提取并识别全部”即可开始处理。
+          在首页的上传区域选择或拖入论文文件。单次最多上传 10 个文件，总大小不超过 50MB。文件加入队列后，点击“提取并识别全部”即可开始处理。
         </p>
 
         <h2 className="mt-7 text-lg font-semibold text-slate-900">4. 如何检查识别结果</h2>
