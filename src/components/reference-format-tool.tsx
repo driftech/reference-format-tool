@@ -12,7 +12,6 @@ import {
   maxSourceFileCount,
   maxTotalUploadSizeBytes,
   sourceFileAccept,
-  unsupportedSourceFileTypeMessage,
 } from "@/lib/fileTypes";
 import {
   formatAuthors,
@@ -163,6 +162,7 @@ export function ReferenceFormatTool() {
   const [manualStartIndexInput, setManualStartIndexInput] = useState("1");
   const [resultText, setResultText] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [uploadToastMessage, setUploadToastMessage] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
   const [sourceSelectedFormat, setSourceSelectedFormat] =
     useState("english-numbered");
@@ -192,6 +192,7 @@ export function ReferenceFormatTool() {
   const [chineseBibliographyText, setChineseBibliographyText] = useState("");
   const [chineseBibliographyMessage, setChineseBibliographyMessage] = useState("");
   const sourceFileInputRef = useRef<HTMLInputElement>(null);
+  const uploadToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bibliographyFileInputRef = useRef<HTMLInputElement>(null);
 
   const parsedReferences = useMemo(() => parseReferences(inputText), [inputText]);
@@ -304,6 +305,35 @@ export function ReferenceFormatTool() {
     (file) => file.textExtractionStatus === "extracting",
   );
 
+  const clearUploadToast = useCallback(() => {
+    if (uploadToastTimerRef.current) {
+      clearTimeout(uploadToastTimerRef.current);
+      uploadToastTimerRef.current = null;
+    }
+
+    setUploadToastMessage("");
+  }, []);
+
+  const showUploadToast = useCallback((message: string) => {
+    if (uploadToastTimerRef.current) {
+      clearTimeout(uploadToastTimerRef.current);
+    }
+
+    setUploadToastMessage(message);
+    uploadToastTimerRef.current = setTimeout(() => {
+      setUploadToastMessage("");
+      uploadToastTimerRef.current = null;
+    }, 4000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (uploadToastTimerRef.current) {
+        clearTimeout(uploadToastTimerRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const activeIds = new Set(uploadedSourceFiles.map((file) => file.id));
     const filesToInitialize = uploadedSourceFiles.filter(
@@ -364,12 +394,12 @@ export function ReferenceFormatTool() {
       }
 
       if (files.length > maxSourceFileCount) {
-        setStatusMessage(`一次最多上传 ${maxSourceFileCount} 个文件。`);
+        showUploadToast(`一次最多上传 ${maxSourceFileCount} 个文件。`);
         return;
       }
 
       if (files.some((file) => !isAllowedSourceFile(file))) {
-        setStatusMessage(unsupportedSourceFileTypeMessage);
+        showUploadToast("暂不支持该文件类型。");
         return;
       }
 
@@ -392,7 +422,7 @@ export function ReferenceFormatTool() {
       });
 
       if (currentFiles.length + newFiles.length > maxSourceFileCount) {
-        setStatusMessage(`一次最多上传 ${maxSourceFileCount} 个文件。`);
+        showUploadToast(`一次最多上传 ${maxSourceFileCount} 个文件。`);
         return;
       }
 
@@ -406,7 +436,7 @@ export function ReferenceFormatTool() {
       );
 
       if (currentTotalSize + newTotalSize > maxTotalUploadSizeBytes) {
-        setStatusMessage("单次上传文件总大小不能超过 50MB。");
+        showUploadToast("单次上传文件总大小不能超过 50MB。");
         return;
       }
 
@@ -424,10 +454,11 @@ export function ReferenceFormatTool() {
       setStatusMessage(
         `已读取 ${newFiles.length} 个文件。可在上传队列中执行文本提取。`,
       );
+      clearUploadToast();
       setSourceStatusMessage("");
       setCopyMessage("");
     },
-    [],
+    [clearUploadToast, showUploadToast],
   );
 
   const handleSourceFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1024,6 +1055,16 @@ export function ReferenceFormatTool() {
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-slate-50 px-4 py-8 text-slate-950 sm:px-6 lg:px-8">
+      {uploadToastMessage ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed right-4 top-4 z-50 max-w-[calc(100vw-2rem)] rounded-lg border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-lg sm:right-6 sm:top-6"
+        >
+          {uploadToastMessage}
+        </div>
+      ) : null}
+
       <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-6">
         <header className="rounded-lg border border-slate-200 bg-white px-5 py-6 shadow-sm sm:px-8 sm:py-7">
           <h1 className="text-3xl font-semibold tracking-normal text-slate-950 sm:text-4xl">
@@ -1048,9 +1089,6 @@ export function ReferenceFormatTool() {
               </h2>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
                 主流程：PDF 上传 → 文本提取 → DOI 提取 → Crossref / DataCite / OpenAlex 查询 → 无 DOI 或查询失败时题名检索 → 候选结果和置信度 → 用户确认或编辑 → 生成 GB/T 7714 / APA 7th。
-              </p>
-              <p className="mt-2 text-xs leading-6 text-slate-500">
-                单次最多上传 10 个文件，总大小不超过 50MB。支持 PDF、DOCX、DOC、TXT、MD、TEX、RTF 等论文或文献文件。
               </p>
               <p className="mt-2 max-w-3xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-6 text-amber-800">
                 文件仅用于本次参考文献识别。请勿上传涉密文件、未发表论文或包含敏感信息的材料。生成结果仅供格式整理参考，正式投稿前请按目标期刊要求人工核对。
