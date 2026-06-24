@@ -6,7 +6,15 @@ export type ReferenceValidationStatus = "passed" | "review" | "missing";
 export type ReferenceValidationIssue = {
   field?: keyof ReferenceItem;
   message: string;
-  scope: "通用检查" | "GB/T 7714" | "英文数字编号制" | "APA 7th" | "IEEE";
+  scope:
+    | "通用检查"
+    | "GB/T 7714"
+    | "英文数字编号制"
+    | "APA 7th"
+    | "IEEE"
+    | "MLA 9th"
+    | "Chicago Author-Date"
+    | "Harvard";
 };
 
 export type ReferenceValidationResult = {
@@ -29,9 +37,18 @@ export function validateReferences(
         ? validateApa7Fields(reference)
         : targetStyle === "ieee"
           ? validateIeeeFields(reference)
-        : targetStyle === "english-numbered"
-          ? validateEnglishNumberedFields(reference)
-          : validateGb7714Fields(reference)),
+          : targetStyle === "english-numbered"
+            ? validateEnglishNumberedFields(reference)
+            : targetStyle === "mla-9"
+              ? validateSupplementaryEnglishFields(reference, "MLA 9th")
+              : targetStyle === "chicago-author-date"
+                ? validateSupplementaryEnglishFields(
+                    reference,
+                    "Chicago Author-Date",
+                  )
+                : targetStyle === "harvard"
+                  ? validateSupplementaryEnglishFields(reference, "Harvard")
+                  : validateGb7714Fields(reference)),
     ];
     const uniqueIssues = dedupeIssues(issues);
 
@@ -191,6 +208,25 @@ function validateEnglishNumberedFields(
   }
 
   return issues;
+}
+
+function validateSupplementaryEnglishFields(
+  reference: ReferenceItem,
+  scope: "MLA 9th" | "Chicago Author-Date" | "Harvard",
+): ReferenceValidationIssue[] {
+  if (
+    reference.type === "journal" &&
+    hasMissing(reference, ["authors", "title", "sourceTitle", "year"])
+  ) {
+    return [
+      {
+        message: `${scope} 期刊论文缺少作者、题名、期刊名或年份，正式提交前请核对。`,
+        scope,
+      },
+    ];
+  }
+
+  return [];
 }
 
 function validateIeeeFields(reference: ReferenceItem): ReferenceValidationIssue[] {

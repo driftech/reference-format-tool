@@ -5,6 +5,9 @@ export type TargetReferenceFormat =
   | "english-numbered"
   | "apa-7"
   | "ieee"
+  | "mla-9"
+  | "chicago-author-date"
+  | "harvard"
   | string;
 
 export type FormatReferenceOptions = {
@@ -30,6 +33,18 @@ export function formatReferences(
 
   if (targetFormat === "ieee") {
     return formatIEEE(references, options);
+  }
+
+  if (targetFormat === "mla-9") {
+    return formatMLA9(references);
+  }
+
+  if (targetFormat === "chicago-author-date") {
+    return formatChicagoAuthorDate(references);
+  }
+
+  if (targetFormat === "harvard") {
+    return formatHarvard(references);
   }
 
   return references
@@ -145,6 +160,70 @@ export function formatIEEE(
                   : reference.rawText;
 
       return `${sequence} ${ensureFinalPeriod(formatted || reference.rawText)}`;
+    })
+    .join("\n");
+}
+
+export function formatMLA9(referenceItems: ReferenceItem[]): string {
+  return referenceItems
+    .map((reference) => {
+      if (reference.type === "unknown" && reference.rawText.trim()) {
+        return ensureFinalPeriod(reference.rawText);
+      }
+
+      const authors = formatMlaAuthors(reference.authors);
+      const title = formatQuotedTitle(reference, '"', true);
+      const source = formatMlaSource(reference);
+      const body = joinNonEmpty(
+        [authors ? ensureFinalPeriod(authors) : "", title, source],
+        " ",
+      );
+
+      return appendSupplementaryStyleLink(body || reference.rawText, reference);
+    })
+    .join("\n");
+}
+
+export function formatChicagoAuthorDate(
+  referenceItems: ReferenceItem[],
+): string {
+  return referenceItems
+    .map((reference) => {
+      if (reference.type === "unknown" && reference.rawText.trim()) {
+        return ensureFinalPeriod(reference.rawText);
+      }
+
+      const authors = formatChicagoAuthors(reference.authors);
+      const year = reference.year ?? "";
+      const title = formatQuotedTitle(reference, '"', true);
+      const source = formatChicagoSource(reference);
+      const lead = joinNonEmpty([authors, year], ". ");
+      const body = joinNonEmpty(
+        [lead ? ensureFinalPeriod(lead) : "", title, source],
+        " ",
+      );
+
+      return appendSupplementaryStyleLink(body || reference.rawText, reference);
+    })
+    .join("\n");
+}
+
+export function formatHarvard(referenceItems: ReferenceItem[]): string {
+  return referenceItems
+    .map((reference) => {
+      if (reference.type === "unknown" && reference.rawText.trim()) {
+        return ensureFinalPeriod(reference.rawText);
+      }
+
+      const authors = formatHarvardAuthors(reference.authors);
+      const year = reference.year ? `(${reference.year})` : "";
+      const title = formatQuotedTitle(reference, "'", false);
+      const source = formatHarvardSource(reference);
+      const lead = joinNonEmpty([authors, year], " ");
+      const citation = joinNonEmpty([title, source], ", ");
+      const body = joinNonEmpty([lead, citation], " ");
+
+      return appendHarvardLink(body || reference.rawText, reference);
     })
     .join("\n");
 }
@@ -777,6 +856,269 @@ function formatIeeeInitials(value: string): string {
         .join("-"),
     )
     .join(" ");
+}
+
+type ParsedEnglishAuthor = {
+  family: string;
+  given: string;
+  original: string;
+  preserveOriginal: boolean;
+};
+
+function formatMlaAuthors(authors: string[]): string {
+  const parsedAuthors = authors
+    .map(parseEnglishAuthor)
+    .filter((author): author is ParsedEnglishAuthor => Boolean(author));
+
+  if (parsedAuthors.length === 0) {
+    return "";
+  }
+
+  const firstAuthor = parsedAuthors[0];
+  const formattedFirst = formatInvertedFullName(firstAuthor);
+  return parsedAuthors.length > 1 ? `${formattedFirst}, et al` : formattedFirst;
+}
+
+function formatChicagoAuthors(authors: string[]): string {
+  const parsedAuthors = authors
+    .map(parseEnglishAuthor)
+    .filter((author): author is ParsedEnglishAuthor => Boolean(author));
+
+  if (parsedAuthors.length === 0) {
+    return "";
+  }
+
+  const formattedAuthors = parsedAuthors.map((author, index) =>
+    index === 0 ? formatInvertedFullName(author) : formatNaturalFullName(author),
+  );
+
+  if (formattedAuthors.length === 1) {
+    return formattedAuthors[0];
+  }
+
+  if (formattedAuthors.length === 2) {
+    return `${formattedAuthors[0]}, and ${formattedAuthors[1]}`;
+  }
+
+  return `${formattedAuthors.slice(0, -1).join(", ")}, and ${formattedAuthors.at(-1)}`;
+}
+
+function formatHarvardAuthors(authors: string[]): string {
+  const formattedAuthors = authors
+    .map(parseEnglishAuthor)
+    .filter((author): author is ParsedEnglishAuthor => Boolean(author))
+    .map((author) => {
+      if (author.preserveOriginal) {
+        return author.original;
+      }
+
+      const initials = formatApaInitials(author.given);
+      return joinNonEmpty([author.family, initials], ", ");
+    })
+    .filter(Boolean);
+
+  if (formattedAuthors.length === 0) {
+    return "";
+  }
+
+  if (formattedAuthors.length === 1) {
+    return formattedAuthors[0];
+  }
+
+  if (formattedAuthors.length === 2) {
+    return `${formattedAuthors[0]} and ${formattedAuthors[1]}`;
+  }
+
+  return `${formattedAuthors.slice(0, -1).join(", ")} and ${formattedAuthors.at(-1)}`;
+}
+
+function parseEnglishAuthor(author: string): ParsedEnglishAuthor | null {
+  const cleaned = author
+    .replace(/\bet al\.?/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/[,;\uFF0C\u3002\u3001]+$/g, "")
+    .trim();
+
+  if (!cleaned) {
+    return null;
+  }
+
+  if (/[\u3400-\u9fff]/.test(cleaned) || looksLikeOrganizationAuthor(cleaned)) {
+    return {
+      family: cleaned,
+      given: "",
+      original: cleaned,
+      preserveOriginal: true,
+    };
+  }
+
+  if (cleaned.includes(",")) {
+    const [family, ...givenParts] = cleaned.split(",");
+    return {
+      family: family.trim(),
+      given: givenParts.join(" ").trim(),
+      original: cleaned,
+      preserveOriginal: false,
+    };
+  }
+
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  if (tokens.length === 1) {
+    return {
+      family: tokens[0],
+      given: "",
+      original: cleaned,
+      preserveOriginal: false,
+    };
+  }
+
+  if (tokens.slice(1).every(isInitialToken)) {
+    return {
+      family: tokens[0],
+      given: tokens.slice(1).join(" "),
+      original: cleaned,
+      preserveOriginal: false,
+    };
+  }
+
+  return {
+    family: tokens.at(-1) ?? "",
+    given: tokens.slice(0, -1).join(" "),
+    original: cleaned,
+    preserveOriginal: false,
+  };
+}
+
+function formatInvertedFullName(author: ParsedEnglishAuthor): string {
+  if (author.preserveOriginal) {
+    return author.original;
+  }
+
+  return joinNonEmpty([author.family, author.given], ", ");
+}
+
+function formatNaturalFullName(author: ParsedEnglishAuthor): string {
+  if (author.preserveOriginal) {
+    return author.original;
+  }
+
+  return joinNonEmpty([author.given, author.family], " ");
+}
+
+function formatQuotedTitle(
+  reference: ReferenceItem,
+  quote: '"' | "'",
+  periodInsideQuote: boolean,
+): string {
+  const title = cleanReferenceMarker(reference.title?.trim() || reference.rawText.trim())
+    .replace(/[.!?\u3002\uFF01\uFF1F]+$/g, "")
+    .trim();
+
+  if (!title) {
+    return "";
+  }
+
+  return `${quote}${title}${periodInsideQuote ? "." : ""}${quote}`;
+}
+
+function formatMlaSource(reference: ReferenceItem): string {
+  const sourceTitle = reference.sourceTitle
+    ? cleanReferenceMarker(reference.sourceTitle)
+    : reference.publisher ?? "";
+  const location = getReferenceLocation(reference);
+  const locationText = location.value
+    ? location.isPageRange
+      ? `pp. ${location.value}`
+      : location.value
+    : "";
+  const details = joinNonEmpty(
+    [
+      sourceTitle,
+      reference.volume ? `vol. ${reference.volume}` : "",
+      reference.issue ? `no. ${reference.issue}` : "",
+      reference.year,
+      locationText,
+    ],
+    ", ",
+  );
+
+  return details ? ensureFinalPeriod(details) : "";
+}
+
+function formatChicagoSource(reference: ReferenceItem): string {
+  const sourceTitle = reference.sourceTitle
+    ? cleanReferenceMarker(reference.sourceTitle)
+    : reference.publisher ?? "";
+  const volumeIssue = reference.volume
+    ? reference.issue
+      ? `${reference.volume} (${reference.issue})`
+      : reference.volume
+    : reference.issue
+      ? `(${reference.issue})`
+      : "";
+  const sourceAndVolume = joinNonEmpty([sourceTitle, volumeIssue], " ");
+  const location = getReferenceLocation(reference).value;
+  const details = sourceAndVolume && location
+    ? `${sourceAndVolume}: ${location}`
+    : sourceAndVolume || location;
+
+  return details ? ensureFinalPeriod(details) : "";
+}
+
+function formatHarvardSource(reference: ReferenceItem): string {
+  const sourceTitle = reference.sourceTitle
+    ? cleanReferenceMarker(reference.sourceTitle)
+    : reference.publisher ?? "";
+  const volumeIssue = reference.volume
+    ? reference.issue
+      ? `${reference.volume}(${reference.issue})`
+      : reference.volume
+    : reference.issue
+      ? `(${reference.issue})`
+      : "";
+  const location = getReferenceLocation(reference);
+  const locationText = location.value
+    ? location.isPageRange
+      ? `pp. ${location.value}`
+      : location.value
+    : "";
+
+  return joinNonEmpty([sourceTitle, volumeIssue, locationText], ", ");
+}
+
+function getReferenceLocation(reference: ReferenceItem): {
+  value: string;
+  isPageRange: boolean;
+} {
+  if (reference.pages?.trim()) {
+    const pages = reference.pages.trim();
+    return {
+      value: pages,
+      isPageRange: /\d\s*[-\u2013\u2014]\s*\d/.test(pages),
+    };
+  }
+
+  return {
+    value: reference.articleNumber?.trim() ?? "",
+    isPageRange: false,
+  };
+}
+
+function appendSupplementaryStyleLink(
+  text: string,
+  reference: ReferenceItem,
+): string {
+  const body = ensureFinalPeriod(text);
+  const link = formatEnglishNumberedLink(reference);
+
+  return link ? joinNonEmpty([body, link], " ") : body;
+}
+
+function appendHarvardLink(text: string, reference: ReferenceItem): string {
+  const body = ensureFinalPeriod(text);
+  const link = formatEnglishNumberedLink(reference);
+
+  return link ? joinNonEmpty([body, `Available at: ${link}`], " ") : body;
 }
 
 function getReferenceTitle(reference: ReferenceItem): string {

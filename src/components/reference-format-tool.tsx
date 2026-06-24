@@ -103,6 +103,21 @@ const englishFormatOptions: FormatOption[] = [
     title: "IEEE",
     description: "计算机、电子、通信、工程技术类常用",
   },
+  {
+    id: "mla-9",
+    title: "MLA 9th",
+    description: "文学、语言学、人文学科常用",
+  },
+  {
+    id: "chicago-author-date",
+    title: "Chicago Author-Date",
+    description: "历史、人文与部分社会科学常用，作者—年份制",
+  },
+  {
+    id: "harvard",
+    title: "Harvard",
+    description: "英联邦高校、管理、商科与社会科学常用；具体细节可能因学校或期刊不同，正式提交前请核对",
+  },
 ];
 
 const textExtractionStatusLabels: Record<
@@ -987,15 +1002,7 @@ export function ReferenceFormatTool() {
     setResultText(formatReferences(parsedReferences, selectedFormat, { startIndex }));
     setCopyMessage("");
     setStatusMessage(
-      selectedFormat === "gbt-7714"
-        ? `已生成 ${parsedReferences.length} 条 GB/T 7714-2015 格式结果。`
-        : selectedFormat === "english-numbered"
-          ? `已生成 ${parsedReferences.length} 条英文数字编号制格式结果。`
-        : selectedFormat === "apa-7"
-          ? `已生成 ${parsedReferences.length} 条 APA 7th 格式结果。`
-          : selectedFormat === "ieee"
-            ? `已生成 ${parsedReferences.length} 条 IEEE 格式结果。`
-          : `已解析并生成 ${parsedReferences.length} 条占位格式结果。`,
+      `已生成 ${parsedReferences.length} 条 ${getFormatDisplayName(selectedFormat)} 格式结果。`,
     );
   };
 
@@ -1165,7 +1172,7 @@ export function ReferenceFormatTool() {
             论文文件参考文献生成器
           </h1>
           <p className="mt-3 max-w-4xl text-base leading-7 text-slate-600">
-            上传论文文件，自动识别题名、作者、期刊、年份、DOI 等信息，并生成 GB/T 7714、英文数字编号制、APA 7th 等参考文献格式。
+            上传论文文件，自动识别题名、作者、期刊、年份、DOI 等信息，并生成 GB/T 7714、英文数字编号制、APA 7th、IEEE、MLA、Chicago Author-Date、Harvard 等格式。
           </p>
           <p className="mt-3 max-w-4xl text-base leading-7 text-slate-600">
             上传自己参考过的论文文件，系统按“一个 PDF 一条参考文献”的方式识别该文件本身的题名、作者、期刊和年份，生成论文末尾可用的参考文献列表；不会提取 PDF 文末 References / 参考文献章节，也不会生成该论文引用过的文献。
@@ -1182,7 +1189,7 @@ export function ReferenceFormatTool() {
                 论文文件上传队列
               </h2>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-                主流程：PDF 上传 → 文本提取 → DOI 提取 → Crossref / DataCite / OpenAlex 查询 → 无 DOI 或查询失败时题名检索 → 候选结果和置信度 → 用户确认或编辑 → 生成 GB/T 7714 / APA 7th。
+                主流程：PDF 上传 → 文本提取 → DOI 提取 → Crossref / DataCite / OpenAlex 查询 → 无 DOI 或查询失败时题名检索 → 候选结果和置信度 → 用户确认或编辑 → 选择参考文献格式并生成。
               </p>
               <p className="mt-2 max-w-3xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-6 text-amber-800">
                 文件仅用于本次参考文献识别。请勿上传涉密文件、未发表论文或包含敏感信息的材料。生成结果仅供格式整理参考，正式投稿前请按目标期刊要求人工核对。
@@ -1634,7 +1641,7 @@ export function ReferenceFormatTool() {
                       已有参考文献文本转换
                     </label>
                     <p className="mt-1 break-words text-sm leading-6 text-slate-500">
-                      保留原有入口：每行一条已整理好的参考文献文本，用于测试 GB/T 7714、英文数字编号制或 APA 7th 输出。
+                      保留原有入口：每行一条已整理好的参考文献文本，可转换为 GB/T 7714 或多种英文参考文献格式。
                     </p>
                   </div>
                 </div>
@@ -2645,7 +2652,7 @@ function StartIndexSetting({
       </label>
       {disabled ? (
         <p className="mt-2 text-xs leading-5 text-slate-500">
-          APA 7th 通常不使用顺序编号。
+          当前格式通常不使用顺序编号。
         </p>
       ) : (
         <p className="mt-2 text-xs leading-5 text-slate-500">
@@ -2833,6 +2840,12 @@ function hasCompleteReferenceFields(reference: ReferenceItem): boolean {
       reference.year &&
       (reference.type !== "journal" || reference.sourceTitle),
   );
+}
+
+function getFormatDisplayName(formatId: TargetReferenceFormat): string {
+  return [...domesticFormatOptions, ...englishFormatOptions].find(
+    (option) => option.id === formatId,
+  )?.title ?? String(formatId);
 }
 
 function usesSequentialNumbering(formatId: TargetReferenceFormat): boolean {
