@@ -13,11 +13,15 @@ export type TextExtractionStatus = "idle" | "extracting" | "success" | "failed";
 
 export type MetadataExtractionStatus = "idle" | "success" | "review" | "failed";
 
+export type UploadedSourceKind = "file" | "manual_doi";
+
 export type UploadedSourceFile = {
   id: string;
-  file: File;
+  sourceKind: UploadedSourceKind;
+  file?: File;
+  manualDoi?: string;
   fileName: string;
-  fileType: SourceFileType;
+  fileType: SourceFileType | "doi";
   size: number;
   status: UploadedSourceFileStatus;
   message: string;
@@ -85,13 +89,9 @@ export function getSourceFileMessage(fileType: SourceFileType): string {
 export function createUploadedSourceFile(file: File): UploadedSourceFile {
   const fileType = detectFileType(file);
   const createdAt = Date.now();
-  const randomId =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${createdAt}-${Math.random().toString(36).slice(2)}`;
-
   return {
-    id: randomId,
+    id: createSourceRecordId(createdAt),
+    sourceKind: "file",
     file,
     fileName: file.name,
     fileType,
@@ -102,4 +102,28 @@ export function createUploadedSourceFile(file: File): UploadedSourceFile {
     textExtractionStatus: "idle",
     metadataStatus: "idle",
   };
+}
+
+export function createManualDoiSourceFile(doi: string): UploadedSourceFile {
+  const createdAt = Date.now();
+
+  return {
+    id: createSourceRecordId(createdAt),
+    sourceKind: "manual_doi",
+    manualDoi: doi,
+    fileName: `DOI: ${doi}`,
+    fileType: "doi",
+    size: 0,
+    status: "supported",
+    message: "来源：手动 DOI 输入。点击“提取并识别全部”时查询开放元数据。",
+    createdAt,
+    textExtractionStatus: "idle",
+    metadataStatus: "idle",
+  };
+}
+
+function createSourceRecordId(createdAt: number): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${createdAt}-${Math.random().toString(36).slice(2)}`;
 }

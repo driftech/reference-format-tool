@@ -6,6 +6,7 @@ import {
   detectDuplicateReferences,
   type DuplicateReferenceResult,
 } from "@/lib/detectDuplicateReferences";
+import { cleanDoi } from "@/lib/doiUtils";
 import { extractTextFromFile } from "@/lib/extractTextFromFile";
 import {
   isAllowedSourceFile,
@@ -32,6 +33,7 @@ import {
 } from "@/lib/referenceTypes";
 import type { ResolvePaperMetadataResult } from "@/lib/metadataResolvers/resolvePaperMetadata";
 import {
+  createManualDoiSourceFile,
   createUploadedSourceFile,
   sourceFileStatusClassNames,
   sourceFileStatusLabels,
@@ -49,6 +51,7 @@ import {
 } from "@/lib/matchImportedCitations";
 import { parseChineseBibliographyBatch } from "@/lib/parseChineseBibliographyBatch";
 import { parseChineseCitationText } from "@/lib/parseChineseCitation";
+import { parseManualDoiInput } from "@/lib/manualDoiInput";
 import {
   detectDuplicateReferenceGroups,
   sortReferenceItems,
@@ -140,6 +143,16 @@ const textExtractionStatusClassNames: Record<
   failed: "bg-rose-100 text-rose-800",
 };
 
+const manualDoiProcessingStatusLabels: Record<
+  UploadedSourceFile["textExtractionStatus"],
+  string
+> = {
+  idle: "\u5f85\u67e5\u8be2",
+  extracting: "\u67e5\u8be2\u4e2d",
+  success: "\u67e5\u8be2\u5b8c\u6210",
+  failed: "\u67e5\u8be2\u5931\u8d25",
+};
+
 const metadataStatusLabels: Record<UploadedSourceFile["metadataStatus"], string> = {
   idle: "未识别",
   success: "成功",
@@ -178,6 +191,7 @@ export function ReferenceFormatTool() {
   const [resultText, setResultText] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [uploadToastMessage, setUploadToastMessage] = useState("");
+  const [manualDoiText, setManualDoiText] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
   const [sourceSelectedFormat, setSourceSelectedFormat] =
     useState("english-numbered");
@@ -426,9 +440,12 @@ export function ReferenceFormatTool() {
 
       const currentFiles = uploadedSourceFilesRef.current;
       const existingKeys = new Set(
-        currentFiles.map(
-          (sourceFile) =>
-            `${sourceFile.fileName}-${sourceFile.size}-${sourceFile.file.lastModified}`,
+        currentFiles.flatMap((sourceFile) =>
+          sourceFile.file
+            ? [
+                `${sourceFile.fileName}-${sourceFile.size}-${sourceFile.file.lastModified}`,
+              ]
+            : [],
         ),
       );
       const newFiles = files.filter((file) => {
@@ -541,9 +558,11 @@ export function ReferenceFormatTool() {
   };
 
   const handleRemoveSourceFile = (fileId: string) => {
-    setUploadedSourceFiles((currentFiles) =>
-      currentFiles.filter((file) => file.id !== fileId),
-    );
+    setUploadedSourceFiles((currentFiles) => {
+      const nextFiles = currentFiles.filter((file) => file.id !== fileId);
+      uploadedSourceFilesRef.current = nextFiles;
+      return nextFiles;
+    });
     setExpandedPreviewIds((currentIds) => {
       const nextIds = new Set(currentIds);
       nextIds.delete(fileId);
@@ -576,6 +595,7 @@ export function ReferenceFormatTool() {
   };
 
   const handleClearSourceFiles = () => {
+    uploadedSourceFilesRef.current = [];
     setUploadedSourceFiles([]);
     setExpandedPreviewIds(new Set());
     setCollapsedMetadataIds(new Set());
@@ -587,6 +607,8 @@ export function ReferenceFormatTool() {
     setCitationSupplementMessages({});
     setManualLookupInputs({});
     setManualLookupMessages({});
+    setManualDoiText("");
+    clearUploadToast();
 
     if (sourceFileInputRef.current) {
       sourceFileInputRef.current.value = "";
@@ -893,7 +915,12 @@ export function ReferenceFormatTool() {
   const handleExtractText = async (fileId: string, progressLabel?: string) => {
     const targetFile = uploadedSourceFiles.find((file) => file.id === fileId);
 
-    if (!targetFile || targetFile.textExtractionStatus === "extracting") {
+    if (
+      !targetFile ||
+      targetFile.sourceKind !== "file" ||
+      !targetFile.file ||
+      targetFile.textExtractionStatus === "extracting"
+    ) {
       return;
     }
 
@@ -957,22 +984,180 @@ export function ReferenceFormatTool() {
     );
   };
 
+  const handleResolveManualDoi = async (sourceFile: UploadedSourceFile) => {
+    const doi = sourceFile.manualDoi;
+
+    if (!doi) {
+      return false;
+    }
+
+    const lookupResult = await lookupMetadataByDoi(doi);
+    const bestCandidate = lookupResult.candidates[0];
+
+    if (!bestCandidate) {
+      const referenceItem = buildUnresolvedManualDoiReference(sourceFile);
+
+      setUploadedSourceFiles((currentFiles) =>
+        currentFiles.map((file) =>
+          file.id === sourceFile.id
+            ? {
+                ...file,
+                message: "\u6765\u6e90\uff1a\u624b\u52a8 DOI \u8f93\u5165\u3002\u672a\u67e5\u8be2\u5230\u5f00\u653e\u5143\u6570\u636e\uff0c\u53ef\u5c55\u5f00\u540e\u624b\u52a8\u8865\u5145\u3002",
+                textExtractionStatus: "failed",
+                metadataStatus: "failed",
+                referenceItem,
+              }
+            : file,
+        ),
+      );
+      return false;
+    }
+
+    const referenceItem = buildResolvedManualDoiReference(
+      sourceFile,
+      bestCandidate,
+      lookupResult.candidates,
+    );
+
+    setUploadedSourceFiles((currentFiles) =>
+      currentFiles.map((file) =>
+        file.id === sourceFile.id
+          ? {
+              ...file,
+              message: "\u6765\u6e90\uff1a\u624b\u52a8 DOI \u8f93\u5165\u3002\u5df2\u901a\u8fc7\u5f00\u653e\u5143\u6570\u636e\u5b8c\u6210\u67e5\u8be2\u3002",
+              textExtractionStatus: "success",
+              metadataStatus: getManualMetadataStatus(referenceItem),
+              referenceItem,
+            }
+          : file,
+      ),
+    );
+    return true;
+  };
+
   const handleExtractAllText = async () => {
-    if (uploadedSourceFiles.length === 0 || isExtractingText) {
+    if (isExtractingText) {
       return;
     }
 
-    const filesToExtract = [...uploadedSourceFiles];
+    const filesToExtract = uploadedSourceFiles.filter(
+      (sourceFile) => sourceFile.sourceKind === "file",
+    );
+    const existingManualDoiRecords = uploadedSourceFiles.filter(
+      (sourceFile) => sourceFile.sourceKind === "manual_doi",
+    );
+    const parsedDoiInput = parseManualDoiInput(manualDoiText);
 
-    for (let index = 0; index < filesToExtract.length; index += 1) {
-      const sourceFile = filesToExtract[index];
-      await handleExtractText(
-        sourceFile.id,
-        `正在识别第 ${index + 1} / ${filesToExtract.length} 篇：${sourceFile.fileName}`,
+    if (
+      filesToExtract.length === 0 &&
+      existingManualDoiRecords.length === 0 &&
+      !manualDoiText.trim()
+    ) {
+      showUploadToast("\u8bf7\u5148\u4e0a\u4f20\u8bba\u6587\u6587\u4ef6\u6216\u8f93\u5165 DOI\u3002");
+      return;
+    }
+
+    if (
+      filesToExtract.length === 0 &&
+      existingManualDoiRecords.length === 0 &&
+      parsedDoiInput.dois.length === 0 &&
+      parsedDoiInput.invalidLines.length > 0
+    ) {
+      showUploadToast("DOI \u683c\u5f0f\u4e0d\u6b63\u786e\uff0c\u8bf7\u68c0\u67e5\u540e\u91cd\u65b0\u8f93\u5165\u3002");
+      return;
+    }
+
+    const existingDoiKeys = new Set(
+      uploadedSourceFiles.flatMap((sourceFile) => {
+        const doi = cleanDoi(
+          sourceFile.referenceItem?.doi ?? sourceFile.manualDoi ?? "",
+        );
+        return doi ? [doi] : [];
+      }),
+    );
+    const newDois = parsedDoiInput.dois.filter(
+      (doi) => !existingDoiKeys.has(doi),
+    );
+    const existingDuplicateCount =
+      parsedDoiInput.dois.length - newDois.length;
+    const skippedDuplicateCount =
+      parsedDoiInput.duplicateCount + existingDuplicateCount;
+    const newDoiRecords = newDois.map(createManualDoiSourceFile);
+
+    if (
+      uploadedSourceFiles.length + newDoiRecords.length >
+      maxSourceFileCount
+    ) {
+      showUploadToast(`\u4e00\u6b21\u6700\u591a\u4e0a\u4f20 ${maxSourceFileCount} \u4e2a\u6587\u4ef6\u3002`);
+      return;
+    }
+
+    if (newDoiRecords.length > 0) {
+      const pendingRecords = newDoiRecords.map((record) => ({
+        ...record,
+        message: "\u6765\u6e90\uff1a\u624b\u52a8 DOI \u8f93\u5165\u3002\u6b63\u5728\u67e5\u8be2\u5f00\u653e\u5143\u6570\u636e...",
+        textExtractionStatus: "extracting" as const,
+      }));
+      const nextFiles = [...uploadedSourceFilesRef.current, ...pendingRecords];
+      uploadedSourceFilesRef.current = nextFiles;
+      setUploadedSourceFiles(nextFiles);
+      setSourceResultText("");
+      setSourceCopyMessage("");
+    }
+
+    const doiRecordsToResolve = [
+      ...existingManualDoiRecords,
+      ...newDoiRecords,
+    ];
+    const doiRecordIds = new Set(
+      doiRecordsToResolve.map((record) => record.id),
+    );
+
+    if (doiRecordIds.size > 0) {
+      setUploadedSourceFiles((currentFiles) =>
+        currentFiles.map((file) =>
+          doiRecordIds.has(file.id)
+            ? {
+                ...file,
+                message: "\u6765\u6e90\uff1a\u624b\u52a8 DOI \u8f93\u5165\u3002\u6b63\u5728\u67e5\u8be2\u5f00\u653e\u5143\u6570\u636e...",
+                textExtractionStatus: "extracting",
+              }
+            : file,
+        ),
       );
     }
 
-    setStatusMessage(`批量识别完成：共处理 ${filesToExtract.length} 篇文件。`);
+    const fileTask = (async () => {
+      for (let index = 0; index < filesToExtract.length; index += 1) {
+        const sourceFile = filesToExtract[index];
+        await handleExtractText(
+          sourceFile.id,
+          `\u6b63\u5728\u8bc6\u522b\u7b2c ${index + 1} / ${filesToExtract.length} \u7bc7\uff1a${sourceFile.fileName}`,
+        );
+      }
+    })();
+    const doiTask = Promise.all(
+      doiRecordsToResolve.map((record) => handleResolveManualDoi(record)),
+    );
+    const [, doiResults] = await Promise.all([fileTask, doiTask]);
+    const successfulDoiCount = doiResults.filter(Boolean).length;
+    const failedDoiCount = doiResults.length - successfulDoiCount;
+
+    setStatusMessage(
+      `\u5df2\u5b8c\u6210\u8bc6\u522b\uff1a\u5904\u7406 ${filesToExtract.length} \u4e2a\u6587\u4ef6\u3001${doiResults.length} \u4e2a DOI\u3002`,
+    );
+
+    if (doiResults.length > 0 && successfulDoiCount === 0) {
+      showUploadToast("\u672a\u80fd\u901a\u8fc7 DOI \u67e5\u8be2\u5230\u6587\u732e\u4fe1\u606f\uff0c\u8bf7\u68c0\u67e5 DOI \u662f\u5426\u6b63\u786e\u3002");
+    } else if (failedDoiCount > 0) {
+      showUploadToast("\u90e8\u5206 DOI \u672a\u67e5\u8be2\u5230\u5143\u6570\u636e\uff0c\u8bf7\u68c0\u67e5 DOI \u662f\u5426\u6b63\u786e\u3002");
+    } else if (parsedDoiInput.invalidLines.length > 0) {
+      showUploadToast("DOI \u683c\u5f0f\u4e0d\u6b63\u786e\uff0c\u8bf7\u68c0\u67e5\u540e\u91cd\u65b0\u8f93\u5165\u3002");
+    } else if (skippedDuplicateCount > 0) {
+      showUploadToast("\u90e8\u5206 DOI \u5df2\u5b58\u5728\uff0c\u5df2\u81ea\u52a8\u8df3\u8fc7\u91cd\u590d\u9879\u3002");
+    } else {
+      showUploadToast("\u5df2\u5b8c\u6210\u8bc6\u522b\u3002");
+    }
   };
 
   const handleTogglePreview = (fileId: string) => {
@@ -1010,7 +1195,7 @@ export function ReferenceFormatTool() {
     if (sourceReferenceItems.length === 0) {
       setSourceResultText("");
       setSourceCopyMessage("");
-      setSourceStatusMessage("请先上传并识别论文 PDF。");
+      setSourceStatusMessage("请先上传并识别论文文件或输入 DOI。");
       return;
     }
 
@@ -1075,7 +1260,7 @@ export function ReferenceFormatTool() {
 
   const handleDownloadSourceResult = (format: "txt" | "bib" | "ris") => {
     if (orderedSourceReferenceItems.length === 0) {
-      setSourceStatusMessage("请先上传并识别论文 PDF。");
+      setSourceStatusMessage("请先上传并识别论文文件或输入 DOI。");
       return;
     }
 
@@ -1217,7 +1402,7 @@ export function ReferenceFormatTool() {
               <button
                 type="button"
                 onClick={handleExtractAllText}
-                disabled={uploadedSourceFiles.length === 0 || isExtractingText}
+                disabled={isExtractingText}
                 className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
               >
                 {isExtractingText ? "提取中..." : "提取并识别全部"}
@@ -1225,16 +1410,38 @@ export function ReferenceFormatTool() {
               <button
                 type="button"
                 onClick={handleClearSourceFiles}
-                disabled={uploadedSourceFiles.length === 0}
+                disabled={uploadedSourceFiles.length === 0 && !manualDoiText.trim()}
                 className="inline-flex min-h-11 items-center justify-center rounded-md border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
               >
-                清空全部文件
+                清空全部
               </button>
             </div>
           </div>
 
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-900">
+                {"\u624b\u52a8\u8f93\u5165 DOI"}
+              </span>
+              <span className="mt-1 block text-xs leading-6 text-slate-500">
+                {"\u5982\u679c\u8bba\u6587\u6587\u4ef6\u65e0\u6cd5\u8bc6\u522b\uff0c\u6216\u4f60\u5df2\u7ecf\u77e5\u9053 DOI\uff0c\u53ef\u4ee5\u5728\u8fd9\u91cc\u8f93\u5165 DOI\u3002\u7cfb\u7edf\u4f1a\u5728\u70b9\u51fb\u201c\u63d0\u53d6\u5e76\u8bc6\u522b\u5168\u90e8\u201d\u65f6\u4e00\u5e76\u67e5\u8be2\u3002"}
+              </span>
+              <textarea
+                value={manualDoiText}
+                onChange={(event) => {
+                  setManualDoiText(event.target.value);
+                  clearUploadToast();
+                }}
+                rows={3}
+                aria-label={"\u624b\u52a8\u8f93\u5165 DOI"}
+                placeholder={"\u8bf7\u8f93\u5165 DOI\uff0c\u652f\u6301\u4e00\u884c\u4e00\u4e2a\u3002\u4f8b\u5982\uff1a\n10.1016/j.autcon.2025.106582"}
+                className="mt-3 min-h-24 w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
+              />
+            </label>
+          </div>
+
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-            <QueueStat label="已上传" value={`${uploadSummary.total} 个`} />
+            <QueueStat label="队列记录" value={`${uploadSummary.total} 条`} />
             <QueueStat label="成功识别" value={`${uploadSummary.recognized} 条`} />
             <QueueStat label="需要检查" value={`${uploadSummary.needsReview} 条`} />
             <QueueStat label="失败/不支持" value={`${uploadSummary.failed} 个`} />
@@ -1281,7 +1488,7 @@ export function ReferenceFormatTool() {
                           {sourceFile.fileName}
                         </h3>
                         <span className="rounded-md bg-white px-2 py-1 text-xs font-medium uppercase text-slate-600 ring-1 ring-slate-200">
-                          {sourceFile.fileType}
+                          {sourceFile.fileType === "doi" ? "DOI" : sourceFile.fileType}
                         </span>
                         <span
                           className={[
@@ -1299,7 +1506,13 @@ export function ReferenceFormatTool() {
                             ],
                           ].join(" ")}
                         >
-                          {textExtractionStatusLabels[sourceFile.textExtractionStatus]}
+                          {sourceFile.sourceKind === "manual_doi"
+                            ? manualDoiProcessingStatusLabels[
+                                sourceFile.textExtractionStatus
+                              ]
+                            : textExtractionStatusLabels[
+                                sourceFile.textExtractionStatus
+                              ]}
                         </span>
                         <span
                           className={[
@@ -1310,27 +1523,31 @@ export function ReferenceFormatTool() {
                           识别：{metadataStatusLabels[sourceFile.metadataStatus]}
                         </span>
                       </div>
-                      <p className="mt-2 text-xs text-slate-500">
-                        大小：{formatFileSize(sourceFile.size)}
-                      </p>
+                      {sourceFile.sourceKind === "file" ? (
+                        <p className="mt-2 text-xs text-slate-500">
+                          {"\u5927\u5c0f\uff1a"}{formatFileSize(sourceFile.size)}
+                        </p>
+                      ) : null}
                       <p className="mt-2 text-sm leading-6 text-slate-600">
                         {sourceFile.message}
                       </p>
                     </div>
 
                     <div className="flex shrink-0 flex-col gap-2 sm:flex-row lg:flex-col">
-                      <button
-                        type="button"
-                        onClick={() => handleExtractText(sourceFile.id)}
-                        disabled={sourceFile.textExtractionStatus === "extracting"}
-                        className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-                      >
-                        {sourceFile.textExtractionStatus === "extracting"
-                          ? "提取中..."
-                          : sourceFile.textExtractionStatus === "success"
-                            ? "重新提取并识别"
-                            : "提取并识别"}
-                      </button>
+                      {sourceFile.sourceKind === "file" ? (
+                        <button
+                          type="button"
+                          onClick={() => handleExtractText(sourceFile.id)}
+                          disabled={sourceFile.textExtractionStatus === "extracting"}
+                          className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                        >
+                          {sourceFile.textExtractionStatus === "extracting"
+                            ? "提取中..."
+                            : sourceFile.textExtractionStatus === "success"
+                              ? "重新提取并识别"
+                              : "提取并识别"}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => handleRemoveSourceFile(sourceFile.id)}
@@ -1375,7 +1592,7 @@ export function ReferenceFormatTool() {
             </div>
           ) : (
             <div className="mt-5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm leading-7 text-slate-500">
-              暂无上传文件。一次可选择多个论文文件，每个文件原则上生成一条识别记录。
+              暂无论文文件或 DOI 记录。上传文件或输入 DOI 后，点击“提取并识别全部”。
             </div>
           )}
         </section>
@@ -1887,6 +2104,22 @@ function FileExtractionSummary({
   expanded: boolean;
   onTogglePreview: () => void;
 }) {
+  if (sourceFile.sourceKind === "manual_doi") {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+        <span
+          className={[
+            "mr-2 inline-flex rounded-md px-2 py-1 text-xs font-medium",
+            textExtractionStatusClassNames[sourceFile.textExtractionStatus],
+          ].join(" ")}
+        >
+          {manualDoiProcessingStatusLabels[sourceFile.textExtractionStatus]}
+        </span>
+        {sourceFile.message}
+      </div>
+    );
+  }
+
   const result = sourceFile.textExtractionResult;
 
   if (!result && sourceFile.textExtractionStatus === "idle") {
@@ -2087,6 +2320,12 @@ function MetadataSummary({
       {collapsed ? null : (
         <>
       <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+        {sourceFile.sourceKind === "manual_doi" ? (
+          <MetaBadge
+            label={"\u8bc6\u522b\u5165\u53e3"}
+            value={"\u624b\u52a8 DOI \u8f93\u5165"}
+          />
+        ) : null}
         <MetaBadge label="元数据来源" value={reference.metadataSource ?? "unknown"} />
         <MetaBadge label="匹配方式" value={reference.matchedBy ?? "none"} />
         <MetaBadge
@@ -2876,6 +3115,79 @@ function formatConfidencePercent(
   return `${Math.round(confidencePercent)}%`;
 }
 
+
+function buildResolvedManualDoiReference(
+  sourceFile: UploadedSourceFile,
+  candidate: MetadataCandidate,
+  candidates: MetadataCandidate[],
+): ReferenceItem {
+  const doi = sourceFile.manualDoi ?? candidate.item.doi;
+  const referenceItem: ReferenceItem = {
+    ...candidate.item,
+    id: `${sourceFile.id}-reference`,
+    rawText: candidate.item.rawText || doi || "",
+    sourceFileName: "\u624b\u52a8 DOI \u8f93\u5165",
+    sourceFileType: "doi",
+    originalFileName: sourceFile.fileName,
+    doi,
+    candidates,
+    metadataSource: candidate.source,
+    matchedBy: "doi",
+    confidence: candidate.confidence,
+    warnings: Array.from(
+      new Set([
+        ...candidate.item.warnings,
+        ...(candidate.warnings ?? []),
+        "\u6765\u6e90\uff1a\u624b\u52a8 DOI \u8f93\u5165\u3002",
+      ]),
+    ),
+  };
+
+  return {
+    ...referenceItem,
+    needsReview:
+      candidate.confidence < 0.9 || !hasCompleteReferenceFields(referenceItem),
+  };
+}
+
+function buildUnresolvedManualDoiReference(
+  sourceFile: UploadedSourceFile,
+): ReferenceItem {
+  const doi = sourceFile.manualDoi ?? null;
+
+  return {
+    id: `${sourceFile.id}-reference`,
+    rawText: doi ?? "",
+    sourceFileName: "\u624b\u52a8 DOI \u8f93\u5165",
+    sourceFileType: "doi",
+    originalFileName: sourceFile.fileName,
+    type: "unknown",
+    authors: [],
+    year: null,
+    title: null,
+    sourceTitle: null,
+    volume: null,
+    issue: null,
+    pages: null,
+    articleNumber: null,
+    publisher: null,
+    place: null,
+    doi,
+    url: doi ? `https://doi.org/${doi}` : null,
+    accessDate: null,
+    language: "unknown",
+    metadataSource: "unknown",
+    confidence: 0,
+    matchedBy: "doi_unresolved",
+    needsReview: true,
+    extractionWarning:
+      "\u672a\u80fd\u901a\u8fc7 DOI \u67e5\u8be2\u5230\u5f00\u653e\u5143\u6570\u636e\uff0c\u8bf7\u68c0\u67e5 DOI \u6216\u624b\u52a8\u8865\u5145\u5b57\u6bb5\u3002",
+    warnings: [
+      "\u6765\u6e90\uff1a\u624b\u52a8 DOI \u8f93\u5165\u3002",
+      "\u672a\u80fd\u901a\u8fc7 DOI \u67e5\u8be2\u5230\u5f00\u653e\u5143\u6570\u636e\uff0c\u8bf7\u68c0\u67e5 DOI \u6216\u624b\u52a8\u8865\u5145\u5b57\u6bb5\u3002",
+    ],
+  };
+}
 
 type MetadataLookupResult = { candidates: MetadataCandidate[]; message?: string };
 
