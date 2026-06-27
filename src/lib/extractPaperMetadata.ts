@@ -1,4 +1,5 @@
 ﻿import { extractDoiCandidates, pickBestDoi } from "./doiUtils";
+import { extractPagesFromText } from "./pageMetadata";
 import type {
   ReferenceItem,
   ReferenceLanguage,
@@ -410,6 +411,7 @@ function extractSourceTitle(
 
 function extractVolumeIssuePages(text: string): VolumeIssuePages {
   const textWithoutDoiAndUrls = stripDoiAndUrls(text);
+  const pageMetadata = extractPagesFromText(textWithoutDoiAndUrls);
   const chineseVolumeIssue = textWithoutDoiAndUrls.match(
     /第\s*(\d+)\s*卷\s*(?:第\s*(\d+)\s*期)?/,
   );
@@ -439,8 +441,10 @@ function extractVolumeIssuePages(text: string): VolumeIssuePages {
   const issue =
     chineseVolumeIssue?.[2] ?? englishVolumeIssue?.[2] ?? compactVolumeIssue?.[2] ?? null;
   const pages =
+    pageMetadata.pages ??
     normalizePageRange(pageMatch?.[1] ?? colonPageRange?.[1] ?? null) ??
     articleNumber?.[2] ??
+    pageMetadata.articleNumber ??
     semicolonArticleNumber?.[2] ??
     null;
 

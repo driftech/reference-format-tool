@@ -1,4 +1,9 @@
 import { cleanDoi } from "../doiUtils";
+import {
+  extractPagesFromMetadata,
+  normalizeArticleNumber,
+  normalizePages,
+} from "../pageMetadata";
 import type {
   MetadataCandidate,
   MetadataCandidateSource,
@@ -31,7 +36,14 @@ export type CrossrefWork = {
   volume?: string;
   issue?: string;
   page?: string;
+  pages?: string;
+  pageRange?: string;
+  page_range?: string;
   "article-number"?: string;
+  articleNumber?: string;
+  article_number?: string;
+  elocationId?: string;
+  eLocationId?: string;
   publisher?: string;
   language?: string;
 };
@@ -59,7 +71,19 @@ export type DataCiteAttributes = {
     issue?: string;
     firstPage?: string;
     lastPage?: string;
+    page?: string;
+    pages?: string;
+    pageRange?: string;
+    page_range?: string;
   };
+  page?: string;
+  pages?: string;
+  pageRange?: string;
+  page_range?: string;
+  articleNumber?: string;
+  article_number?: string;
+  elocationId?: string;
+  eLocationId?: string;
   language?: string;
 };
 
@@ -104,7 +128,16 @@ export type OpenAlexWork = {
     issue?: string;
     first_page?: string;
     last_page?: string;
+    page_range?: string;
+    page?: string;
+    pages?: string;
+    article_number?: string;
+    elocation_id?: string;
   };
+  articleNumber?: string;
+  article_number?: string;
+  elocationId?: string;
+  eLocationId?: string;
 };
 
 type BuildCandidateInput = {
@@ -141,14 +174,17 @@ export function mapCrossrefWorkToCandidate(
     extractYearFromCrossrefDate(work.issued);
   const doi = cleanDoi(work.DOI ?? requestedDoi) || cleanDoi(requestedDoi) || null;
   const type = mapCrossrefType(work.type);
+  const pageMetadata = extractPagesFromMetadata(work);
 
   return buildMetadataCandidate({
-    articleNumber: cleanOptionalString(work["article-number"]),
+    articleNumber:
+      pageMetadata.articleNumber ??
+      normalizeArticleNumber(work["article-number"] ?? work.articleNumber ?? work.article_number ?? work.elocationId ?? work.eLocationId),
     authors,
     confidence: 0.95,
     doi,
     issue: cleanOptionalString(work.issue),
-    pages: cleanOptionalString(work.page),
+    pages: pageMetadata.pages ?? normalizePages(work.page),
     publisher: cleanOptionalString(work.publisher),
     raw: work,
     requestedDoi,
@@ -175,13 +211,15 @@ export function mapDataCiteDoiToCandidate(
   const sourceTitle = cleanOptionalString(container?.title);
   const authors = mapPersonList(attributes.creators, "givenName", "familyName", "name");
   const resourceTypeGeneral = cleanOptionalString(attributes.types?.resourceTypeGeneral);
+  const pageMetadata = extractPagesFromMetadata(attributes);
 
   return buildMetadataCandidate({
     authors,
     confidence: 0.9,
     doi,
     issue: cleanOptionalString(container?.issue),
-    pages: joinPages(firstPage, lastPage),
+    pages: pageMetadata.pages ?? joinPages(firstPage, lastPage),
+    articleNumber: pageMetadata.articleNumber,
     publisher: cleanOptionalString(attributes.publisher),
     raw: data,
     requestedDoi,
@@ -210,6 +248,7 @@ export function mapOpenAlexWorkToCandidate(
     cleanOptionalString(work.primary_location?.landing_page_url) ??
     cleanOptionalString(work.host_venue?.url);
   const doi = cleanDoi(work.doi ?? requestedDoi) || cleanDoi(requestedDoi) || null;
+  const pageMetadata = extractPagesFromMetadata(work);
 
   return buildMetadataCandidate({
     authors: (work.authorships ?? [])
@@ -218,7 +257,8 @@ export function mapOpenAlexWorkToCandidate(
     confidence: 0.85,
     doi,
     issue: cleanOptionalString(work.biblio?.issue),
-    pages: joinPages(firstPage, lastPage),
+    pages: pageMetadata.pages ?? joinPages(firstPage, lastPage),
+    articleNumber: pageMetadata.articleNumber,
     publisher: null,
     raw: work,
     requestedDoi,
@@ -295,8 +335,8 @@ function buildMetadataCandidate(input: BuildCandidateInput): MetadataCandidate {
     sourceTitle: input.sourceTitle ?? null,
     volume: input.volume ?? null,
     issue: input.issue ?? null,
-    pages: input.pages ?? null,
-    articleNumber: input.articleNumber ?? null,
+    pages: normalizePages(input.pages) ?? null,
+    articleNumber: normalizeArticleNumber(input.articleNumber) ?? null,
     publisher: input.publisher ?? null,
     place: null,
     doi: input.doi,

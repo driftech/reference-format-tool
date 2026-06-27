@@ -6,6 +6,12 @@ import {
 } from "../doiUtils";
 import { enhanceChineseReferenceDraft } from "../chineseReferenceHeuristics";
 import { extractPaperMetadata } from "../extractPaperMetadata";
+import {
+  extractPagesFromText,
+  getPagesOrArticleNumber,
+  mergePageMetadataIntoReference,
+  type PageMetadata,
+} from "../pageMetadata";
 import type { MetadataCandidate, ReferenceItem } from "../referenceTypes";
 import { extractZhPaperMetadata } from "../zhPaperMetadata";
 import { isLikelyChinesePaper } from "../zhTextUtils";
@@ -69,6 +75,7 @@ export async function resolvePaperMetadata(
     createLocalDraft(input, firstPagesText, fullText),
     doi,
   );
+  const pageFallback = buildPageFallback(localDraft, firstPagesText, fullText);
   const warnings: string[] = printedPdfRisk ? [getPrintedPdfWarning()] : [];
   let candidates: MetadataCandidate[] = [];
 
@@ -82,6 +89,7 @@ export async function resolvePaperMetadata(
         candidates,
         fileName: input.fileName,
         localDraft,
+        pageFallback,
         warnings: uniqueWarnings([...warnings, ...doiResult.warnings]),
       });
 
@@ -108,6 +116,7 @@ export async function resolvePaperMetadata(
       candidates,
       fileName: input.fileName,
       localDraft,
+      pageFallback,
       warnings: uniqueWarnings([...warnings, ...titleResult.warnings]),
     });
 
@@ -123,6 +132,7 @@ export async function resolvePaperMetadata(
   const finalItem = finalizeLocalDraft({
     candidates,
     localDraft: titleResult.localDraft ?? localDraft,
+    pageFallback: buildPageFallback(titleResult.localDraft ?? localDraft, firstPagesText, fullText),
     warnings: uniqueWarnings([...warnings, ...titleResult.warnings]),
   });
 
@@ -147,6 +157,7 @@ async function resolveChinesePaperMetadata(
     fullText,
     doi,
   });
+  const pageFallback = buildPageFallback(zhDraft, firstPagesText, fullText);
   const printedPdfRisk = detectPrintedPdfRisk({
     firstPagesText,
     fullText,
@@ -166,6 +177,7 @@ async function resolveChinesePaperMetadata(
         candidates,
         fileName: input.fileName,
         localDraft: zhDraft,
+        pageFallback,
         warnings: uniqueWarnings([...warnings, ...doiResult.warnings]),
       });
 
@@ -190,6 +202,7 @@ async function resolveChinesePaperMetadata(
       matchedBy: doi ? "doi_unresolved" : "local_zh_parse",
       doi: doi ?? zhDraft.doi,
     },
+    pageFallback,
     warnings: uniqueWarnings([
       ...warnings,
       "中文文献开放元数据可能不完整，已生成本地解析草稿，请人工核对题名、作者、期刊、年份、卷期页码。",
@@ -301,9 +314,10 @@ function finalizeCandidateItem(input: {
   candidates: MetadataCandidate[];
   fileName: string;
   localDraft: ReferenceItem;
+  pageFallback: PageMetadata;
   warnings: string[];
 }): ReferenceItem {
-  const item = input.candidate.item;
+  const item = mergePageMetadataIntoReference(input.candidate.item, input.pageFallback);
   const warnings = pruneWarningsByFields(item, uniqueWarnings([
     ...item.warnings,
     ...input.warnings,
@@ -331,22 +345,40 @@ function finalizeCandidateItem(input: {
 function finalizeLocalDraft(input: {
   candidates: MetadataCandidate[];
   localDraft: ReferenceItem;
+  pageFallback?: PageMetadata;
   warnings: string[];
 }): ReferenceItem {
-  const warnings = pruneWarningsByFields(input.localDraft, uniqueWarnings([
-    ...input.localDraft.warnings,
+  const localDraft = input.pageFallback
+    ? mergePageMetadataIntoReference(input.localDraft, input.pageFallback)
+    : input.localDraft;
+  const warnings = pruneWarningsByFields(localDraft, uniqueWarnings([
+    ...localDraft.warnings,
     ...input.warnings,
-    ...buildCompletenessWarnings(input.localDraft),
-    ...(!input.localDraft.title || input.localDraft.authors.length === 0 || !input.localDraft.year ? [getManualRecoveryWarning()] : []),
+    ...buildCompletenessWarnings(localDraft),
+    ...(!localDraft.title || localDraft.authors.length === 0 || !localDraft.year ? [getManualRecoveryWarning()] : []),
   ]));
 
   return {
-    ...input.localDraft,
+    ...localDraft,
     candidates: compactCandidates(dedupeCandidates(input.candidates)),
     metadataSource: input.localDraft.metadataSource ?? "pdf",
     needsReview: true,
     extractionWarning: warnings.join(" "),
     warnings,
+  };
+}
+
+function buildPageFallback(
+  localDraft: ReferenceItem,
+  firstPagesText: string,
+  fullText: string,
+): PageMetadata {
+  const localPages = getPagesOrArticleNumber(localDraft);
+  const textPages = extractPagesFromText([firstPagesText, fullText].filter(Boolean).join("\n"));
+
+  return {
+    pages: localPages.pages ?? textPages.pages,
+    articleNumber: localPages.articleNumber ?? (!localPages.pages ? textPages.articleNumber : null),
   };
 }
 
