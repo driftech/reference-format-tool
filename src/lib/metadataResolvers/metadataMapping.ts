@@ -175,16 +175,19 @@ export function mapCrossrefWorkToCandidate(
   const doi = cleanDoi(work.DOI ?? requestedDoi) || cleanDoi(requestedDoi) || null;
   const type = mapCrossrefType(work.type);
   const pageMetadata = extractPagesFromMetadata(work);
+  const articleNumber =
+    pageMetadata.articleNumber ??
+    normalizeArticleNumber(work["article-number"] ?? work.articleNumber ?? work.article_number ?? work.elocationId ?? work.eLocationId);
+  const pages = pageMetadata.pages ?? normalizePages(work.page);
+  const issue = normalizeIssueForArticleNumber(cleanOptionalString(work.issue), pages, articleNumber);
 
   return buildMetadataCandidate({
-    articleNumber:
-      pageMetadata.articleNumber ??
-      normalizeArticleNumber(work["article-number"] ?? work.articleNumber ?? work.article_number ?? work.elocationId ?? work.eLocationId),
+    articleNumber,
     authors,
     confidence: 0.95,
     doi,
-    issue: cleanOptionalString(work.issue),
-    pages: pageMetadata.pages ?? normalizePages(work.page, { allowSinglePage: true }),
+    issue,
+    pages,
     publisher: cleanOptionalString(work.publisher),
     raw: work,
     requestedDoi,
@@ -212,14 +215,17 @@ export function mapDataCiteDoiToCandidate(
   const authors = mapPersonList(attributes.creators, "givenName", "familyName", "name");
   const resourceTypeGeneral = cleanOptionalString(attributes.types?.resourceTypeGeneral);
   const pageMetadata = extractPagesFromMetadata(attributes);
+  const articleNumber = pageMetadata.articleNumber;
+  const pages = pageMetadata.pages ?? (!articleNumber ? joinPages(firstPage, lastPage) : null);
+  const issue = normalizeIssueForArticleNumber(cleanOptionalString(container?.issue), pages, articleNumber);
 
   return buildMetadataCandidate({
     authors,
     confidence: 0.9,
     doi,
-    issue: cleanOptionalString(container?.issue),
-    pages: pageMetadata.pages ?? (!pageMetadata.articleNumber ? joinPages(firstPage, lastPage) : null),
-    articleNumber: pageMetadata.articleNumber,
+    issue,
+    pages,
+    articleNumber,
     publisher: cleanOptionalString(attributes.publisher),
     raw: data,
     requestedDoi,
@@ -249,6 +255,9 @@ export function mapOpenAlexWorkToCandidate(
     cleanOptionalString(work.host_venue?.url);
   const doi = cleanDoi(work.doi ?? requestedDoi) || cleanDoi(requestedDoi) || null;
   const pageMetadata = extractPagesFromMetadata(work);
+  const articleNumber = pageMetadata.articleNumber;
+  const pages = pageMetadata.pages ?? (!articleNumber ? joinPages(firstPage, lastPage) : null);
+  const issue = normalizeIssueForArticleNumber(cleanOptionalString(work.biblio?.issue), pages, articleNumber);
 
   return buildMetadataCandidate({
     authors: (work.authorships ?? [])
@@ -256,9 +265,9 @@ export function mapOpenAlexWorkToCandidate(
       .filter(Boolean),
     confidence: 0.85,
     doi,
-    issue: cleanOptionalString(work.biblio?.issue),
-    pages: pageMetadata.pages ?? (!pageMetadata.articleNumber ? joinPages(firstPage, lastPage) : null),
-    articleNumber: pageMetadata.articleNumber,
+    issue,
+    pages,
+    articleNumber,
     publisher: null,
     raw: work,
     requestedDoi,
@@ -335,7 +344,7 @@ function buildMetadataCandidate(input: BuildCandidateInput): MetadataCandidate {
     sourceTitle: input.sourceTitle ?? null,
     volume: input.volume ?? null,
     issue: input.issue ?? null,
-    pages: normalizePages(input.pages, { allowSinglePage: true }) ?? null,
+    pages: normalizePages(input.pages) ?? null,
     articleNumber: normalizeArticleNumber(input.articleNumber) ?? null,
     publisher: input.publisher ?? null,
     place: null,
@@ -520,7 +529,19 @@ function joinPages(firstPage: string | null, lastPage: string | null): string | 
     return firstPage === lastPage ? firstPage : `${firstPage}-${lastPage}`;
   }
 
-  return firstPage ?? lastPage;
+  return null;
+}
+
+function normalizeIssueForArticleNumber(
+  issue: string | null,
+  pages: string | null,
+  articleNumber: string | null,
+): string | null {
+  if (articleNumber && !pages && issue === "1") {
+    return null;
+  }
+
+  return issue;
 }
 
 function buildRawText(input: BuildCandidateInput): string {

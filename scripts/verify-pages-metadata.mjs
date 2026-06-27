@@ -120,6 +120,59 @@ assert(
   "OpenAlex count fields were incorrectly mapped to pages",
 );
 
+
+
+const scientificDataCandidate = metadataMapping.mapCrossrefWorkToCandidate(
+  {
+    title: [
+      "Building material stocks and embodied carbon dataset for two urban agglomerations in China from 2000 to 2020",
+    ],
+    "container-title": ["Scientific Data"],
+    author: [
+      { given: "Hanwei", family: "Liang" },
+      { given: "Baizhe", family: "Zhang" },
+      { given: "Xuepeng", family: "Qian" },
+      { given: "Ying", family: "Chen" },
+    ],
+    "published-online": { "date-parts": [[2025]] },
+    volume: "12",
+    issue: "1",
+    "article-number": "930",
+    DOI: "10.1038/s41597-025-05258-4",
+    type: "journal-article",
+  },
+  "10.1038/s41597-025-05258-4",
+);
+
+assert(scientificDataCandidate.item.pages === null, "Scientific Data article number leaked into pages");
+assert(scientificDataCandidate.item.articleNumber === "930", "Scientific Data article number was not preserved");
+assert(scientificDataCandidate.item.issue === null, "Scientific Data article-number record should not keep issue=1");
+
+const buildingEnvironmentCandidate = metadataMapping.mapCrossrefWorkToCandidate(
+  {
+    title: [
+      "LCA and scenario analysis of a Norwegian net-zero GHG emission neighbourhood: The importance of mobility and surplus energy from PV technologies",
+    ],
+    "container-title": ["Building and Environment"],
+    author: [
+      { given: "C.", family: "Lausselet" },
+      { given: "K.M.", family: "Lund" },
+      { given: "H.", family: "Bratteb\u00f8" },
+    ],
+    "published-print": { "date-parts": [[2021]] },
+    volume: "189",
+    page: "107528",
+    "article-number": "107528",
+    DOI: "10.1016/j.buildenv.2020.107528",
+    type: "journal-article",
+  },
+  "10.1016/j.buildenv.2020.107528",
+);
+
+assert(buildingEnvironmentCandidate.item.pages === null, "Building and Environment article number leaked into pages");
+assert(buildingEnvironmentCandidate.item.articleNumber === "107528", "Building and Environment article number was not preserved");
+assert(buildingEnvironmentCandidate.item.issue === null, "Building and Environment issue should stay empty");
+
 const frontPageCitation =
   "Moisio, M., Salmio, E., Kaasalainen, T., Huuhka, S., R\\u00e4s\\u00e4nen, A., Lahdensivu, J., Lepp\\u00e4nen, M., & Kuula, P. (2024). Towards urban LCA: examining densification alternatives for a residential neighbourhood. Buildings and Cities, 5(1), pp. 581-600. DOI: https://doi.org/10.5334/bc.472";
 const pagesFromText = pageMetadata.extractPagesFromText(frontPageCitation);
@@ -147,6 +200,17 @@ assert(
   articleNumber.pages === null && articleNumber.articleNumber === "106582",
   "Article number fallback was not preserved separately from pages",
 );
+
+
+const formatReferencesModule = loadTsModule("src/lib/formatReferences.ts");
+const fixedSamples = [scientificDataCandidate.item, buildingEnvironmentCandidate.item, crossrefCandidate.item];
+const fixedSampleOutput = formatReferencesModule.formatReferences(fixedSamples, "gbt-7714", { startIndex: 1 });
+assert(fixedSampleOutput.includes("Scientific Data, 2025, 12: 930"), "Scientific Data GB/T output is wrong");
+assert(!fixedSampleOutput.includes("Scientific Data, 2025, 12(1): 32-34"), "Scientific Data false issue/pages output leaked");
+assert(fixedSampleOutput.includes("Building and Environment, 2021, 189: 107528"), "Building and Environment GB/T output is wrong");
+assert(!fixedSampleOutput.includes("pp. 107528"), "Article number was formatted as pp.");
+assert(fixedSampleOutput.includes("Buildings and Cities, 2024, 5(1): 581-600"), "Buildings and Cities GB/T output is wrong");
+assert(!fixedSampleOutput.includes("152"), "Invalid 152 leaked into fixed sample output");
 
 console.log("page metadata verification passed");
 

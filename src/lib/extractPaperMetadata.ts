@@ -18,6 +18,7 @@ type VolumeIssuePages = {
   volume: string | null;
   issue: string | null;
   pages: string | null;
+  articleNumber: string | null;
 };
 
 const urlPattern = /(?:https?:\/\/|www\.)[^\s锛屻€傦紱;锛?\]]+/i;
@@ -121,6 +122,7 @@ export function extractPaperMetadata(
     volume: volumeIssuePages.volume,
     issue: volumeIssuePages.issue,
     pages: volumeIssuePages.pages,
+    articleNumber: volumeIssuePages.articleNumber,
     publisher: placePublisher.publisher,
     place: placePublisher.place,
     doi,
@@ -443,8 +445,10 @@ function extractVolumeIssuePages(text: string): VolumeIssuePages {
   const pages =
     pageMetadata.pages ??
     normalizePageRange(pageMatch?.[1] ?? colonPageRange?.[1] ?? null) ??
-    articleNumber?.[2] ??
+    null;
+  const articleNumberValue =
     pageMetadata.articleNumber ??
+    articleNumber?.[2] ??
     semicolonArticleNumber?.[2] ??
     null;
 
@@ -452,6 +456,7 @@ function extractVolumeIssuePages(text: string): VolumeIssuePages {
     volume,
     issue,
     pages,
+    articleNumber: pages ? null : articleNumberValue,
   };
 }
 

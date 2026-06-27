@@ -52,7 +52,8 @@ const articleNumberSample = {
   sourceTitle: "Automation in Construction",
   volume: "181",
   issue: null,
-  pages: "106582",
+  pages: null,
+  articleNumber: "106582",
   doi: "10.1016/j.autcon.2025.106582",
 };
 

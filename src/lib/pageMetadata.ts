@@ -43,7 +43,6 @@ const articleNumberKeys = [
 
 export function normalizePages(
   value: unknown,
-  options: { allowSinglePage?: boolean } = {},
 ): string | null {
   const cleaned = normalizeString(value);
   if (!cleaned) return null;
@@ -56,11 +55,9 @@ export function normalizePages(
   const rangeMatch = withoutLabel.match(/[A-Za-z]?\d{1,6}\s*[-\u2013\u2014?]\s*[A-Za-z]?\d{1,6}/);
 
   if (rangeMatch?.[0]) {
-    return rangeMatch[0].replace(/\s*[-\u2013\u2014?]\s*/g, "-");
-  }
-
-  if (options.allowSinglePage && /^(?:[A-Za-z]?\d{1,6})$/i.test(withoutLabel)) {
-    return withoutLabel;
+    const normalized = rangeMatch[0].replace(/\s*[-\u2013\u2014?]\s*/g, "-");
+    if (looksLikeYearRange(normalized)) return null;
+    return normalized;
   }
 
   return null;
@@ -94,9 +91,9 @@ export function extractPagesFromMetadata(raw: unknown): PageMetadata {
   const joinedPages = joinPages(firstPage, lastPage);
   const firstPageArticleNumber = !lastPage ? normalizeArticleNumber(firstPage) : null;
   const normalizedJoinedPages = joinedPages && !firstPageArticleNumber
-    ? normalizePages(joinedPages, { allowSinglePage: Boolean(firstPage && !lastPage) })
+    ? normalizePages(joinedPages)
     : null;
-  const normalizedDirectPages = normalizePages(directPages, { allowSinglePage: true });
+  const normalizedDirectPages = normalizePages(directPages);
   const normalizedPages = normalizedJoinedPages ?? (!firstPageArticleNumber ? normalizedDirectPages : null);
   const normalizedArticle =
     normalizeArticleNumber(directArticleNumber) ??
@@ -114,8 +111,7 @@ export function extractPagesFromText(text: string): PageMetadata {
   const explicitPageRange =
     cleaned.match(/(?:pp?\.?|pages?)\s*([A-Za-z]?\d{1,6}\s*[-\u2013\u2014?]\s*[A-Za-z]?\d{1,6})/i)?.[1] ??
     cleaned.match(/\b\d{1,4}\s*\(\s*\d{1,3}\s*\)\s*[,;:]?\s*(?:pp?\.?\s*)?([A-Za-z]?\d{1,6}\s*[-\u2013\u2014?]\s*[A-Za-z]?\d{1,6})/i)?.[1] ??
-    cleaned.match(/\b(?:19|20)\d{2}\s*;\s*\d{1,4}(?:\s*\(\s*\d{1,3}\s*\))?\s*:\s*([A-Za-z]?\d{1,6}\s*[-\u2013\u2014?]\s*[A-Za-z]?\d{1,6})/i)?.[1] ??
-    cleaned.match(/[,;:]\s*([A-Za-z]?\d{1,6}\s*[-\u2013\u2014?]\s*[A-Za-z]?\d{1,6})\b/)?.[1];
+    cleaned.match(/\b(?:19|20)\d{2}\s*;\s*\d{1,4}(?:\s*\(\s*\d{1,3}\s*\))?\s*:\s*([A-Za-z]?\d{1,6}\s*[-\u2013\u2014?]\s*[A-Za-z]?\d{1,6})/i)?.[1];
   const pages = normalizePages(explicitPageRange);
 
   if (pages && isPageRange(pages)) {
@@ -123,6 +119,8 @@ export function extractPagesFromText(text: string): PageMetadata {
   }
 
   const articleNumber =
+    cleaned.match(/\|\s*\((?:19|20)\d{2}\)\s*\d{1,4}\s*:\s*([A-Za-z]?\d{3,}|e\d{3,})\b/i)?.[1] ??
+    cleaned.match(/\b(?:19|20)\d{2}\s*[;|]\s*\d{1,4}\s*:\s*([A-Za-z]?\d{3,}|e\d{3,})\b/i)?.[1] ??
     cleaned.match(/\b(?:19|20)\d{2}\s*;\s*\d{1,4}(?:\s*\(\s*\d{1,3}\s*\))?\s*:\s*([A-Za-z]?\d{5,}|e\d{3,})\b/i)?.[1] ??
     cleaned.match(/\b\d{1,4}\s*\(\s*\d{1,3}\s*\)\s*[,;:]\s*([A-Za-z]?\d{5,}|e\d{3,})\b/i)?.[1];
 
@@ -136,11 +134,10 @@ export function getPagesOrArticleNumber(reference: ReferenceItem): PageMetadata 
   const metadata = extractPagesFromMetadata(reference.rawMetadata);
 
   return {
-    pages: normalizePages(reference.pages, { allowSinglePage: true }) ?? metadata.pages,
+    pages: normalizePages(reference.pages) ?? metadata.pages,
     articleNumber:
       normalizeArticleNumber(reference.articleNumber) ??
-      metadata.articleNumber ??
-      (!normalizePages(reference.pages, { allowSinglePage: true }) ? normalizeArticleNumber(reference.pages) : null),
+      metadata.articleNumber,
   };
 }
 
@@ -214,4 +211,12 @@ function stripDoiAndUrls(text: string): string {
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/\bdoi\s*:?\s*10\.\d{4,9}\/\S+/gi, " ")
     .replace(/\b10\.\d{4,9}\/\S+/gi, " ");
+}
+
+function looksLikeYearRange(value: string): boolean {
+  const match = value.match(/^(\d{4})-(\d{4})$/);
+  if (!match) return false;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  return start >= 1800 && start <= 2099 && end >= 1800 && end <= 2099;
 }

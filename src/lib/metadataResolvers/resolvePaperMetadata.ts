@@ -374,7 +374,8 @@ function buildPageFallback(
   fullText: string,
 ): PageMetadata {
   const localPages = getPagesOrArticleNumber(localDraft);
-  const textPages = extractPagesFromText([firstPagesText, fullText].filter(Boolean).join("\n"));
+  void fullText;
+  const textPages = extractPagesFromText(firstPagesText);
 
   return {
     pages: localPages.pages ?? textPages.pages,

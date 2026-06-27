@@ -635,7 +635,7 @@ function formatCompactAuthorList(
   const suffix = displayed.length < parsedAuthors.length ? (hasChinese ? "等" : "et al") : "";
   const names = displayed.map((author) => {
     if (author.isChinese || author.isOrganization) return author.original;
-    return joinNonEmpty([author.family, formatInitials(author.given, { dots: false, compact: true })], " ");
+    return joinNonEmpty([author.family, formatInitials(author.given, { dots: false, compact: false })], " ");
   });
 
   return joinNonEmpty([names.join(", "), suffix], ", ");
@@ -767,7 +767,12 @@ function formatInitials(
     .filter((part) => part && part !== "-")
     .map((part) => part.replace(/[^A-Za-z\u00C0-\u024F]/g, ""))
     .filter(Boolean)
-    .map((part) => `${part[0].toUpperCase()}${options.dots ? "." : ""}`)
+    .flatMap((part) =>
+      /^[A-Z]{2,}$/.test(part) && part.length <= 4
+        ? part.split("")
+        : [part[0]],
+    )
+    .map((initial) => `${initial.toUpperCase()}${options.dots ? "." : ""}`)
     .join(options.compact ? "" : " ");
 }
 
@@ -780,36 +785,15 @@ function looksLikeOrganizationAuthor(author: string): boolean {
 }
 
 function getReferenceLocation(reference: SanitizedReferenceItem): PageLocation {
-  const pageStart = getRawMetadataString(reference, ["pageStart", "firstPage", "first-page"]);
-  const pageEnd = getRawMetadataString(reference, ["pageEnd", "lastPage", "last-page"]);
-
-  if (pageStart && pageEnd) {
+  if (reference.pages && isPageRange(reference.pages)) {
     return {
-      value: `${pageStart}-${pageEnd}`,
+      value: reference.pages,
       isRange: true,
       isArticleNumber: false,
     };
   }
 
-  if (reference.pages) {
-    return {
-      value: reference.pages,
-      isRange: isPageRange(reference.pages),
-      isArticleNumber: isArticleNumber(reference.pages),
-    };
-  }
-
-  if (pageStart) {
-    return {
-      value: pageStart,
-      isRange: false,
-      isArticleNumber: false,
-    };
-  }
-
-  const articleNumber =
-    reference.articleNumber ??
-    getRawMetadataString(reference, ["article_number", "article-number", "elocationId", "eLocationID"]);
+  const articleNumber = reference.articleNumber;
 
   return {
     value: articleNumber ?? "",
@@ -817,17 +801,8 @@ function getReferenceLocation(reference: SanitizedReferenceItem): PageLocation {
     isArticleNumber: Boolean(articleNumber),
   };
 }
-
 function isPageRange(value: string): boolean {
   return /[A-Za-z]?\d+\s*[-\u2013\u2014]\s*[A-Za-z]?\d+/.test(value);
-}
-
-function isArticleNumber(value: string): boolean {
-  const cleaned = cleanText(value);
-  if (!cleaned || isPageRange(cleaned)) return false;
-  if (/^e\d+$/i.test(cleaned)) return true;
-  if (/^\d{5,}$/.test(cleaned)) return true;
-  return /^article\s+\w+/i.test(cleaned);
 }
 
 function formatVolumeIssue(volume: string | null, issue: string | null): string {
@@ -942,12 +917,12 @@ function cleanOptionalText(value: string | null | undefined): string | null {
 function cleanPages(value: string | null | undefined): string | null {
   const cleaned = cleanOptionalText(value);
   if (!cleaned) return null;
-  return cleaned
+  const normalized = cleaned
     .replace(/\s*[-\u2013\u2014]\s*/g, "-")
     .replace(/^pp?\.\s*/i, "")
     .replace(/^pages?\s*/i, "");
+  return isPageRange(normalized) ? normalized : null;
 }
-
 function cleanText(value: string | null | undefined): string {
   if (!value) return "";
   return decodeHtmlEntities(String(value))
@@ -1011,37 +986,6 @@ function toHyphenRange(value: string): string {
 
 function toEnDashRange(value: string): string {
   return cleanText(value).replace(/\s*[-\u2014]\s*/g, "–").replace(/\s*\u2013\s*/g, "–");
-}
-
-function getRawMetadataString(
-  reference: SanitizedReferenceItem,
-  keys: string[],
-): string | null {
-  const raw = reference.rawMetadata;
-  if (!raw || typeof raw !== "object") return null;
-  const records = [
-    raw,
-    (raw as Record<string, unknown>).biblio,
-    (raw as Record<string, unknown>).container,
-    (raw as Record<string, unknown>).attributes,
-    ((raw as Record<string, unknown>).attributes as Record<string, unknown> | undefined)?.container,
-  ].filter(
-    (value): value is Record<string, unknown> =>
-      Boolean(value) && typeof value === "object" && !Array.isArray(value),
-  );
-  const keySet = new Set(keys.map((key) => key.toLowerCase()));
-
-  for (const record of records) {
-    for (const [key, value] of Object.entries(record)) {
-      if (!keySet.has(key.toLowerCase())) continue;
-      if (typeof value === "string" || typeof value === "number") {
-        const cleaned = cleanOptionalText(String(value));
-        if (cleaned) return cleaned;
-      }
-    }
-  }
-
-  return null;
 }
 
 function joinSentenceParts(parts: Array<string | null | undefined>): string {
