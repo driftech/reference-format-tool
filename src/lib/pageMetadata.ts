@@ -41,7 +41,10 @@ const articleNumberKeys = [
   "e-location-id",
 ];
 
-export function normalizePages(value: unknown): string | null {
+export function normalizePages(
+  value: unknown,
+  options: { allowSinglePage?: boolean } = {},
+): string | null {
   const cleaned = normalizeString(value);
   if (!cleaned) return null;
 
@@ -56,7 +59,7 @@ export function normalizePages(value: unknown): string | null {
     return rangeMatch[0].replace(/\s*[-\u2013\u2014?]\s*/g, "-");
   }
 
-  if (/^(?:[A-Za-z]?\d{1,6}|e\d{3,})$/i.test(withoutLabel)) {
+  if (options.allowSinglePage && /^(?:[A-Za-z]?\d{1,6})$/i.test(withoutLabel)) {
     return withoutLabel;
   }
 
@@ -76,14 +79,28 @@ export function normalizeArticleNumber(value: unknown): string | null {
 }
 
 export function extractPagesFromMetadata(raw: unknown): PageMetadata {
-  const firstPage = firstNestedString(raw, pageStartKeys);
-  const lastPage = firstNestedString(raw, pageEndKeys);
-  const directPages = firstNestedString(raw, pageKeys);
-  const directArticleNumber = firstNestedString(raw, articleNumberKeys);
+  const record = asRecord(raw);
+  const biblio = asRecord(record?.biblio);
+  const container = asRecord(record?.container);
+  const attributes = asRecord(record?.attributes);
+  const attributesContainer = asRecord(attributes?.container);
+  const sources = [record, biblio, container, attributes, attributesContainer].filter(
+    (source): source is Record<string, unknown> => Boolean(source),
+  );
+  const firstPage = firstDirectString(sources, pageStartKeys);
+  const lastPage = firstDirectString(sources, pageEndKeys);
+  const directPages = firstDirectString(sources, pageKeys);
+  const directArticleNumber = firstDirectString(sources, articleNumberKeys);
   const joinedPages = joinPages(firstPage, lastPage);
-  const normalizedPages = normalizePages(joinedPages ?? directPages);
+  const firstPageArticleNumber = !lastPage ? normalizeArticleNumber(firstPage) : null;
+  const normalizedJoinedPages = joinedPages && !firstPageArticleNumber
+    ? normalizePages(joinedPages, { allowSinglePage: Boolean(firstPage && !lastPage) })
+    : null;
+  const normalizedDirectPages = normalizePages(directPages, { allowSinglePage: true });
+  const normalizedPages = normalizedJoinedPages ?? (!firstPageArticleNumber ? normalizedDirectPages : null);
   const normalizedArticle =
     normalizeArticleNumber(directArticleNumber) ??
+    firstPageArticleNumber ??
     (!normalizedPages && directPages ? normalizeArticleNumber(directPages) : null);
 
   return {
@@ -119,11 +136,11 @@ export function getPagesOrArticleNumber(reference: ReferenceItem): PageMetadata 
   const metadata = extractPagesFromMetadata(reference.rawMetadata);
 
   return {
-    pages: normalizePages(reference.pages) ?? metadata.pages,
+    pages: normalizePages(reference.pages, { allowSinglePage: true }) ?? metadata.pages,
     articleNumber:
       normalizeArticleNumber(reference.articleNumber) ??
       metadata.articleNumber ??
-      (!normalizePages(reference.pages) ? normalizeArticleNumber(reference.pages) : null),
+      (!normalizePages(reference.pages, { allowSinglePage: true }) ? normalizeArticleNumber(reference.pages) : null),
   };
 }
 
@@ -158,31 +175,28 @@ function joinPages(firstPage: string | null, lastPage: string | null): string | 
   return firstPage ?? lastPage;
 }
 
-function firstNestedString(raw: unknown, keys: string[]): string | null {
-  if (!raw || typeof raw !== "object") return null;
-
-  const stack: unknown[] = [raw];
-  const seen = new Set<unknown>();
+function firstDirectString(
+  records: Array<Record<string, unknown>>,
+  keys: string[],
+): string | null {
   const keySet = new Set(keys.map((key) => key.toLowerCase()));
 
-  while (stack.length > 0) {
-    const current = stack.shift();
-    if (!current || typeof current !== "object" || seen.has(current)) continue;
-    seen.add(current);
-
-    for (const [key, value] of Object.entries(current)) {
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record)) {
       if (keySet.has(key.toLowerCase())) {
         const normalized = normalizeString(value);
         if (normalized) return normalized;
-      }
-
-      if (value && typeof value === "object") {
-        stack.push(value);
       }
     }
   }
 
   return null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function normalizeString(value: unknown): string | null {

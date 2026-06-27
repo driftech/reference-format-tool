@@ -1019,12 +1019,25 @@ function getRawMetadataString(
 ): string | null {
   const raw = reference.rawMetadata;
   if (!raw || typeof raw !== "object") return null;
+  const records = [
+    raw,
+    (raw as Record<string, unknown>).biblio,
+    (raw as Record<string, unknown>).container,
+    (raw as Record<string, unknown>).attributes,
+    ((raw as Record<string, unknown>).attributes as Record<string, unknown> | undefined)?.container,
+  ].filter(
+    (value): value is Record<string, unknown> =>
+      Boolean(value) && typeof value === "object" && !Array.isArray(value),
+  );
+  const keySet = new Set(keys.map((key) => key.toLowerCase()));
 
-  for (const key of keys) {
-    const value = (raw as Record<string, unknown>)[key];
-    if (typeof value === "string" || typeof value === "number") {
-      const cleaned = cleanOptionalText(String(value));
-      if (cleaned) return cleaned;
+  for (const record of records) {
+    for (const [key, value] of Object.entries(record)) {
+      if (!keySet.has(key.toLowerCase())) continue;
+      if (typeof value === "string" || typeof value === "number") {
+        const cleaned = cleanOptionalText(String(value));
+        if (cleaned) return cleaned;
+      }
     }
   }
 

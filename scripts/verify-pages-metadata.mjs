@@ -44,6 +44,37 @@ assert(
   "Crossref raw page was not mapped to ReferenceItem.pages",
 );
 
+
+const crossrefWithNestedReferencePage = metadataMapping.mapCrossrefWorkToCandidate(
+  {
+    title: [
+      "Towards urban LCA: examining densification alternatives for a residential neighbourhood",
+    ],
+    "container-title": ["Buildings and Cities"],
+    author: [{ given: "Malin", family: "Moisio" }],
+    "published-print": { "date-parts": [[2024]] },
+    volume: "5",
+    issue: "1",
+    DOI: "10.5334/bc.472",
+    type: "journal-article",
+    "reference-count": 152,
+    "is-referenced-by-count": 152,
+    reference: [
+      {
+        "first-page": "152",
+        DOI: "10.1080/13556207.2018.1493664",
+        "article-title": "Life cycle assessment and historic buildings",
+      },
+    ],
+  },
+  "10.5334/bc.472",
+);
+
+assert(
+  crossrefWithNestedReferencePage.item.pages === null,
+  "Nested Crossref reference first-page/count value was incorrectly mapped to pages",
+);
+
 const openAlexCandidate = metadataMapping.mapOpenAlexWorkToCandidate(
   {
     title:
@@ -66,6 +97,29 @@ assert(
   "OpenAlex first_page/last_page was not mapped to ReferenceItem.pages",
 );
 
+
+const openAlexWithCounts = metadataMapping.mapOpenAlexWorkToCandidate(
+  {
+    title:
+      "Towards urban LCA: examining densification alternatives for a residential neighbourhood",
+    publication_year: 2024,
+    type: "article",
+    doi: "https://doi.org/10.5334/bc.472",
+    cited_by_count: 152,
+    referenced_works_count: 152,
+    biblio: {
+      volume: "5",
+      issue: "1",
+    },
+  },
+  "10.5334/bc.472",
+);
+
+assert(
+  openAlexWithCounts.item.pages === null,
+  "OpenAlex count fields were incorrectly mapped to pages",
+);
+
 const frontPageCitation =
   "Moisio, M., Salmio, E., Kaasalainen, T., Huuhka, S., R\\u00e4s\\u00e4nen, A., Lahdensivu, J., Lepp\\u00e4nen, M., & Kuula, P. (2024). Towards urban LCA: examining densification alternatives for a residential neighbourhood. Buildings and Cities, 5(1), pp. 581-600. DOI: https://doi.org/10.5334/bc.472";
 const pagesFromText = pageMetadata.extractPagesFromText(frontPageCitation);
@@ -73,6 +127,13 @@ const pagesFromText = pageMetadata.extractPagesFromText(frontPageCitation);
 assert(
   pagesFromText.pages === "581-600",
   "PDF front-page citation page range was not extracted",
+);
+
+const isolatedTextNumber = pageMetadata.extractPagesFromText("152");
+
+assert(
+  isolatedTextNumber.pages === null && isolatedTextNumber.articleNumber === null,
+  "Isolated text number was incorrectly extracted as pages",
 );
 
 const articleNumber = pageMetadata.extractPagesFromMetadata({
@@ -83,8 +144,8 @@ const articleNumber = pageMetadata.extractPagesFromMetadata({
 });
 
 assert(
-  articleNumber.pages === "106582",
-  "Article number page fallback was not preserved",
+  articleNumber.pages === null && articleNumber.articleNumber === "106582",
+  "Article number fallback was not preserved separately from pages",
 );
 
 console.log("page metadata verification passed");
